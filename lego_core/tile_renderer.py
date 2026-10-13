@@ -1,5 +1,5 @@
 from typing import TypeAlias
-
+from functools import lru_cache
 from PIL import Image, ImageDraw
 
 RGBColor: TypeAlias = tuple[int, int, int]
@@ -11,6 +11,7 @@ def shade(color: RGBColor, amount: int) -> RGBColor:
     return tuple(max(0, min(255, channel + amount)) for channel in color)
 
 
+@lru_cache(maxsize=None)
 def render_tile(
     color: RGBColor,
     tile_size: int = 32,
