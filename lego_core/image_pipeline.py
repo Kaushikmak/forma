@@ -3,8 +3,8 @@ from rgbTOlab import ConvertColorSpace_rgbTOlab
 from tile_renderer import render_grid
 
 INPUT_PATH = "samples/imageSamples/sample1.png"
-GRID_WIDTH = 128
-TILE_SIZE = 64
+GRID_WIDTH = 64
+TILE_SIZE = 32
 
 image = Image.open(INPUT_PATH).convert("RGB")
 
