@@ -1,8 +1,8 @@
+from functools import lru_cache
 from typing import Final
 import numpy as np
 from PIL import Image
 from skimage.color import rgb2lab
-from typing import Final
 
 LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
     # Neutrals
@@ -100,31 +100,73 @@ LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
 }
 
 
-# Precompute the palette once when the module is imported
-_PALETTE_RGB = np.array(
-    list(LEGO_PALETTE.values()),
-    dtype=np.float32,
+_PALETTE_RGB_UINT8: Final[np.ndarray] = np.asarray(
+    list(LEGO_PALETTE.values()), dtype=np.uint8
 )
+_PALETTE_RGB_FLOAT: Final[np.ndarray] = _PALETTE_RGB_UINT8.astype(np.float32)
+_PALETTE_LAB: Final[np.ndarray] = rgb2lab(
+    (_PALETTE_RGB_FLOAT / 255.0).reshape(1, -1, 3)
+)[0].astype(np.float32)
 
-_PALETTE_LAB = rgb2lab((_PALETTE_RGB / 255.0).reshape(1, -1, 3))[0]
+LUT_BITS: Final[int] = 6
+_LUT_LEVELS: Final[int] = 1 << LUT_BITS
+_LUT_SHIFT: Final[int] = 8 - LUT_BITS
 
-_PALETTE_RGB_UINT8 = _PALETTE_RGB.astype(np.uint8)
+
+def _build_color_lut() -> np.ndarray:
+    """Build a 3D lookup table mapping quantized RGB bins to palette indices"""
+    levels = _LUT_LEVELS
+    step = 256.0 / levels
+    # Use each RGB bin's center as its representative color
+    axis = (np.arange(levels, dtype=np.float32) * step + step / 2.0) / 255.0
+    red, green, blue = np.meshgrid(axis, axis, axis, indexing="ij")
+    rgb_samples = np.stack((red, green, blue), axis=-1).reshape(-1, 3)
+    lab_samples = rgb2lab(rgb_samples.reshape(1, -1, 3))[0].astype(np.float32)
+
+    palette_lab = _PALETTE_LAB
+    palette_squared = np.sum(palette_lab * palette_lab, axis=1)
+    lut_flat = np.empty(lab_samples.shape[0], dtype=np.uint8)
+
+    # Chunk the distance calculation to keep peak memory bounded
+    chunk_size = 65_536
+    for start in range(0, len(lab_samples), chunk_size):
+        end = min(start + chunk_size, len(lab_samples))
+        chunk = lab_samples[start:end]
+        distances_squared = (
+            np.sum(chunk * chunk, axis=1)[:, None]
+            - 2.0 * (chunk @ palette_lab.T)
+            + palette_squared[None, :]
+        )
+        lut_flat[start:end] = np.argmin(distances_squared, axis=1).astype(np.uint8)
+
+    return lut_flat.reshape(levels, levels, levels)
+
+
+@lru_cache(maxsize=1)
+def get_color_lut() -> np.ndarray:
+    """Return the shared lookup table, building it on first use"""
+    return _build_color_lut()
+
+
+def quantize_rgb(rgb_image: np.ndarray) -> np.ndarray:
+    """Return palette indices for an HxWx3 uint8 RGB image using the LUT
+
+    The six-bit lookup is an approximation of exact CIELAB matching: RGB values
+    within each four-value channel bin share the same palette match
+    """
+    rgb = np.asarray(rgb_image)
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        raise ValueError("Expected an HxWx3 RGB array")
+    if rgb.dtype != np.uint8:
+        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+
+    quantized_rgb = rgb >> _LUT_SHIFT
+    lut = get_color_lut()
+    return lut[quantized_rgb[..., 0], quantized_rgb[..., 1], quantized_rgb[..., 2]]
 
 
 def ConvertColorSpace_rgbTOlab(image: Image.Image) -> Image.Image:
-    """Map each image pixel to its closest LEGO palette color in CIELAB."""
-    image = image.convert("RGB")
-
-    pixels_rgb = np.asarray(image, dtype=np.float32) / 255.0
-    pixels_lab = rgb2lab(pixels_rgb)
-
-    # Compare pixels against the precomputed palette
-    distances = np.linalg.norm(
-        pixels_lab[:, :, None, :] - _PALETTE_LAB[None, None, :, :],
-        axis=3,
-    )
-
-    closest_indices = np.argmin(distances, axis=2)
-    output_pixels = _PALETTE_RGB_UINT8[closest_indices]
-
-    return Image.fromarray(output_pixels)
+    """Map an image to the closest LEGO palette RGB colors using the LUT"""
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    indices = quantize_rgb(rgb)
+    return Image.fromarray(_PALETTE_RGB_UINT8[indices])
