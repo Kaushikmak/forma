@@ -1,49 +1,67 @@
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
-from rgbTOlab import quantize_rgb
-from tile_renderer import build_atlas, render_indices
 
-INPUT_PATH = Path("samples/imageSamples/sample2.jpeg")
-OUTPUT_PATH = Path("output/lego_mosaic1.png")
-GRID_WIDTH = 64
-TILE_SIZE = 16
+from config import MosaicConfig
+from quantizer import quantize_rgb
+from tile_renderer import render_indices
 
 
 def image_to_mosaic(
     image: Image.Image,
-    grid_width: int = GRID_WIDTH,
-    tile_size: int = TILE_SIZE,
+    config: MosaicConfig,
+    atlas: np.ndarray,
 ) -> Image.Image:
-    """Convert a PIL image into a LEGO-style mosaic image"""
-    if grid_width < 1:
-        raise ValueError("grid_width must be positive")
+    """Convert a PIL image into a LEGO-style mosaic."""
     image = image.convert("RGB")
     original_width, original_height = image.size
-    grid_height = max(1, round(grid_width * original_height / original_width))
+
+    if original_width < 1 or original_height < 1:
+        raise ValueError("Image must have non-zero dimensions.")
+
+    atlas_array = np.asarray(atlas)
+    if (
+        atlas_array.ndim != 4
+        or atlas_array.shape[1] != config.tile_size
+        or atlas_array.shape[2] != config.tile_size
+    ):
+        raise ValueError("Atlas tile size must match config.tile_size.")
+
+    grid_height = max(
+        1,
+        round(config.grid_width * original_height / original_width),
+    )
 
     small_image = image.resize(
-        (grid_width, grid_height),
+        (config.grid_width, grid_height),
         Image.Resampling.LANCZOS,
     )
     small_rgb = np.asarray(small_image, dtype=np.uint8)
     indices = quantize_rgb(small_rgb)
-    atlas = build_atlas(tile_size)
-    mosaic_rgb = render_indices(indices, atlas)
+    mosaic_rgb = render_indices(indices, atlas_array)
+
     return Image.fromarray(mosaic_rgb)
 
 
-def main() -> None:
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with Image.open(INPUT_PATH) as source:
-        original_size = source.size
-        mosaic = image_to_mosaic(source)
+def image_to_mosaic_file(
+    input_path: str | Path,
+    output_path: str | Path,
+    config: MosaicConfig,
+    atlas: np.ndarray,
+) -> None:
+    """Convert an image file into a LEGO mosaic file."""
+    input_path = Path(input_path)
+    output_path = Path(output_path)
 
-    mosaic.save(OUTPUT_PATH)
-    print(f"Input resolution: {original_size[0]} x {original_size[1]} pixels")
-    print(f"Grid width: {GRID_WIDTH} tiles")
-    print(f"Output resolution: {mosaic.width} x {mosaic.height} pixels")
-    print(f"Saved image: {OUTPUT_PATH}")
+    if not input_path.is_file():
+        raise FileNotFoundError(f"Input image does not exist: {input_path}")
+    if input_path.resolve() == output_path.resolve():
+        raise ValueError("Input and output paths must be different.")
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-main()
+    with Image.open(input_path) as image:
+        mosaic = image_to_mosaic(image, config, atlas)
+
+    mosaic.save(output_path)
