@@ -59,8 +59,7 @@ def render_tile(
 
     return tile
 
-
-def build_atlas(
+def _build_atlas(
     palette: Palette,
     tile_size: int = 32,
 ) -> np.ndarray:
@@ -90,6 +89,16 @@ def build_atlas(
         axis=0,
     )
 
+
+@lru_cache(maxsize=None)
+def get_atlas(
+    palette: Palette,
+    tile_size: int = 32,
+) -> np.ndarray:
+    return _build_atlas(
+        palette=palette,
+        tile_size=tile_size,
+    )
 
 def render_indices(
     indices: np.ndarray,
@@ -135,8 +144,8 @@ def render_mosaic(
     palette: Palette,
     tile_size: int = 32,
 ) -> Image.Image:
-    """Build an atlas and render a palette-index grid."""
-    atlas = build_atlas(
+    """Render a palette-index grid using the cached tile atlas."""
+    atlas = get_atlas(
         palette=palette,
         tile_size=tile_size,
     )
