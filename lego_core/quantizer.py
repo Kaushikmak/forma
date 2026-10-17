@@ -73,7 +73,7 @@ def _build_color_lut(palette: Palette) -> np.ndarray:
     )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=None)
 def get_color_lut(palette: Palette) -> np.ndarray:
     """Return the cached RGB-to-palette lookup table."""
     return _build_color_lut(palette)
