@@ -72,10 +72,10 @@ def build_atlas(
     palette_colors = palette_data.rgb
 
     if palette_colors.ndim != 2 or palette_colors.shape[1] != 3:
-        raise ValueError("colors must have shape (palette_size, 3).")
+        raise ValueError("Palette colors must have shape (palette_size, 3).")
 
     if palette_colors.shape[0] == 0:
-        raise ValueError("colors must contain at least one color.")
+        raise ValueError("Palette must contain at least one color.")
 
     return np.stack(
         [
