@@ -1,7 +1,10 @@
+from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
 from skimage.color import rgb2lab
+
+from config import Palette
 
 LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
     # Neutrals
@@ -99,13 +102,39 @@ LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
 }
 
 
-_PALETTE_RGB_UINT8: Final[np.ndarray] = np.asarray(
-    list(LEGO_PALETTE.values()),
-    dtype=np.uint8,
-)
+@dataclass(frozen=True)
+class PaletteData:
+    colors: dict[str, tuple[int, int, int]]
+    rgb: np.ndarray
+    lab: np.ndarray
 
-_PALETTE_RGB_FLOAT: Final[np.ndarray] = _PALETTE_RGB_UINT8.astype(np.float32)
 
-_PALETTE_LAB: Final[np.ndarray] = rgb2lab(
-    (_PALETTE_RGB_FLOAT / 255.0).reshape(1, -1, 3)
-)[0].astype(np.float32)
+def _build_palette(
+    colors: dict[str, tuple[int, int, int]],
+) -> PaletteData:
+    rgb = np.asarray(
+        list(colors.values()),
+        dtype=np.uint8,
+    )
+
+    rgb_float = rgb.astype(np.float32)
+
+    lab = rgb2lab((rgb_float / 255.0).reshape(1, -1, 3))[0].astype(np.float32)
+
+    return PaletteData(
+        colors=colors,
+        rgb=rgb,
+        lab=lab,
+    )
+
+
+PALETTES: Final[dict[Palette, PaletteData]] = {
+    Palette.CLASSIC: _build_palette(LEGO_PALETTE),
+}
+
+
+def get_palette(palette: Palette) -> PaletteData:
+    try:
+        return PALETTES[palette]
+    except KeyError:
+        raise ValueError(f"Unsupported palette: {palette.value}")
