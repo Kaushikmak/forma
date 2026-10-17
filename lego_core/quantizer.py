@@ -4,7 +4,8 @@ from typing import Final
 import numpy as np
 from skimage.color import rgb2lab
 
-from palette import _PALETTE_LAB
+from config import Palette
+from palette import get_palette
 
 LUT_BITS: Final[int] = 6
 
@@ -12,7 +13,7 @@ _LUT_LEVELS: Final[int] = 1 << LUT_BITS
 _LUT_SHIFT: Final[int] = 8 - LUT_BITS
 
 
-def _build_color_lut() -> np.ndarray:
+def _build_color_lut(palette: Palette) -> np.ndarray:
     levels = _LUT_LEVELS
     step = 256.0 / levels
 
@@ -32,7 +33,8 @@ def _build_color_lut() -> np.ndarray:
 
     lab_samples = rgb2lab(rgb_samples.reshape(1, -1, 3))[0].astype(np.float32)
 
-    palette_lab = _PALETTE_LAB
+    palette_data = get_palette(palette)
+    palette_lab = palette_data.lab
 
     # Precompute palette squared norms for the distance calculation.
     palette_squared = np.sum(
@@ -72,12 +74,12 @@ def _build_color_lut() -> np.ndarray:
 
 
 @lru_cache(maxsize=1)
-def get_color_lut() -> np.ndarray:
+def get_color_lut(palette: Palette) -> np.ndarray:
     """Return the cached RGB-to-palette lookup table."""
-    return _build_color_lut()
+    return _build_color_lut(palette)
 
 
-def quantize_rgb(rgb_image: np.ndarray) -> np.ndarray:
+def quantize_rgb(rgb_image: np.ndarray, palette: Palette) -> np.ndarray:
     """Convert an HxWx3 RGB image to LEGO palette indices."""
     rgb = np.asarray(rgb_image)
 
@@ -89,7 +91,7 @@ def quantize_rgb(rgb_image: np.ndarray) -> np.ndarray:
 
     quantized_rgb = rgb >> _LUT_SHIFT
 
-    lut = get_color_lut()
+    lut = get_color_lut(palette)
 
     return lut[
         quantized_rgb[..., 0],
