@@ -38,7 +38,7 @@ def image_to_mosaic(
         Image.Resampling.LANCZOS,
     )
     small_rgb = np.asarray(small_image, dtype=np.uint8)
-    indices = quantize_rgb(small_rgb)
+    indices = quantize_rgb(small_rgb, config.palette)
     mosaic_rgb = render_indices(indices, atlas_array)
 
     return Image.fromarray(mosaic_rgb)
