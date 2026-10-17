@@ -1,5 +1,7 @@
 from functools import lru_cache
 from typing import TypeAlias
+from config import Palette
+from palette import get_palette
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -59,19 +61,15 @@ def render_tile(
 
 
 def build_atlas(
+    palette: Palette,
     tile_size: int = 32,
-    colors: np.ndarray | None = None,
 ) -> np.ndarray:
     """Build a pre-rendered tile atlas."""
     if tile_size < 4:
         raise ValueError("tile_size must be at least 4 pixels.")
 
-    if colors is None:
-        from palette import _PALETTE_RGB_UINT8
-
-        colors = _PALETTE_RGB_UINT8
-
-    palette_colors = np.asarray(colors, dtype=np.uint8)
+    palette_data = get_palette(palette)
+    palette_colors = palette_data.rgb
 
     if palette_colors.ndim != 2 or palette_colors.shape[1] != 3:
         raise ValueError("colors must have shape (palette_size, 3).")
@@ -134,13 +132,13 @@ def render_indices(
 
 def render_mosaic(
     indices: np.ndarray,
+    palette: Palette,
     tile_size: int = 32,
-    colors: np.ndarray | None = None,
 ) -> Image.Image:
     """Build an atlas and render a palette-index grid."""
     atlas = build_atlas(
+        palette=palette,
         tile_size=tile_size,
-        colors=colors,
     )
 
     mosaic_rgb = render_indices(indices, atlas)
