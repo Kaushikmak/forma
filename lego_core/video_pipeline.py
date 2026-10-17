@@ -10,7 +10,7 @@ import numpy as np
 
 from config import MosaicConfig
 from quantizer import quantize_rgb
-from tile_renderer import render_indices
+from tile_renderer import get_atlas, render_indices
 
 
 def process_frame(
@@ -30,7 +30,7 @@ def process_frame(
         (config.grid_width, grid_height),
         interpolation=cv2.INTER_AREA,
     )
-    indices = quantize_rgb(small_bgr[..., ::-1])
+    indices = quantize_rgb(small_bgr[..., ::-1], config.palette)
     return render_indices(indices, atlas_bgr)
 
 
@@ -126,7 +126,6 @@ def video_to_mosaic_file(
     input_path: str | Path,
     output_path: str | Path,
     config: MosaicConfig,
-    atlas: np.ndarray,
     workers: int | None = None,
     buffer_size: int | None = None,
 ) -> None:
@@ -149,14 +148,12 @@ def video_to_mosaic_file(
     if buffer_size < 1:
         raise ValueError("buffer_size must be positive.")
 
-    atlas_rgb = np.asarray(atlas)
-    if (
-        atlas_rgb.ndim != 4
-        or atlas_rgb.shape[-1] != 3
-        or atlas_rgb.shape[1] != config.tile_size
-        or atlas_rgb.shape[2] != config.tile_size
-    ):
-        raise ValueError("Atlas must contain RGB tiles matching config.tile_size.")
+    atlas = get_atlas(
+        palette=config.palette,
+        tile_size=config.tile_size,
+    )
+
+    atlas_bgr = atlas[..., ::-1].copy()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -170,7 +167,6 @@ def video_to_mosaic_file(
         capture.release()
         raise RuntimeError("Could not determine video frame rate.")
 
-    atlas_bgr = atlas_rgb[..., ::-1].copy()
     frame_queue: Queue = Queue(maxsize=buffer_size)
     output_queue: Queue = Queue(maxsize=buffer_size)
     stop_event = Event()
@@ -236,7 +232,12 @@ def video_to_mosaic_file(
                     pending.append(
                         (
                             frame_index,
-                            pool.submit(process_frame, frame, config, atlas_bgr),
+                            pool.submit(
+                                process_frame,
+                                frame,
+                                config,
+                                atlas_bgr,
+                            ),
                         )
                     )
 
