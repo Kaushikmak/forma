@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import TypeAlias
-from config import Palette
-from palette import get_palette
 
 import numpy as np
 from PIL import Image, ImageDraw
+
+from config import Palette
+from palette import get_palette
 
 RGBColor: TypeAlias = tuple[int, int, int]
 
@@ -19,26 +22,37 @@ def render_tile(
     color: RGBColor,
     tile_size: int = 32,
 ) -> Image.Image:
-    """Render a LEGO-style tile with a raised stud."""
+    """
+    Render a LEGO-style tile with a raised stud.
+    Uses 4x supersampling downscaled with Lanczos for smooth, anti-aliased studs.
+    """
     if tile_size < 4:
         raise ValueError("tile_size must be at least 4 pixels.")
 
-    tile = Image.new("RGB", (tile_size, tile_size), color)
+    scale = 4
+    render_size = tile_size * scale
+    tile = Image.new("RGB", (render_size, render_size), color)
     draw = ImageDraw.Draw(tile)
 
+    border_width = max(1, 1 * scale)
     draw.rectangle(
-        (1, 1, tile_size - 2, tile_size - 2),
+        (scale, scale, render_size - 1 - scale, render_size - 1 - scale),
         outline=shade(color, -45),
-        width=1,
+        width=border_width,
     )
 
-    stud_left = tile_size * 0.22
-    stud_top = tile_size * 0.16
-    stud_right = tile_size * 0.78
-    stud_bottom = tile_size * 0.72
+    stud_left = render_size * 0.22
+    stud_top = render_size * 0.16
+    stud_right = render_size * 0.78
+    stud_bottom = render_size * 0.72
 
     draw.ellipse(
-        (stud_left + 1, stud_top + 2, stud_right + 1, stud_bottom + 2),
+        (
+            stud_left + 1 * scale,
+            stud_top + 2 * scale,
+            stud_right + 1 * scale,
+            stud_bottom + 2 * scale,
+        ),
         fill=shade(color, -55),
     )
 
@@ -46,24 +60,31 @@ def render_tile(
         (stud_left, stud_top, stud_right, stud_bottom),
         fill=shade(color, 20),
         outline=shade(color, -35),
-        width=1,
+        width=border_width,
     )
 
     draw.arc(
-        (stud_left + 2, stud_top + 2, stud_right - 2, stud_bottom - 2),
+        (
+            stud_left + 2 * scale,
+            stud_top + 2 * scale,
+            stud_right - 2 * scale,
+            stud_bottom - 2 * scale,
+        ),
         start=195,
         end=285,
         fill=shade(color, 55),
-        width=2,
+        width=max(1, 2 * scale),
     )
 
-    return tile
+    # Downsample to target tile_size with Lanczos for anti-aliased stud curves
+    return tile.resize((tile_size, tile_size), resample=Image.Resampling.LANCZOS)
+
 
 def _build_atlas(
     palette: Palette,
     tile_size: int = 32,
 ) -> np.ndarray:
-    """Build a pre-rendered tile atlas."""
+    """Build a pre-rendered tile atlas (shape: [num_colors, tile_size, tile_size, 3])."""
     if tile_size < 4:
         raise ValueError("tile_size must be at least 4 pixels.")
 
@@ -76,11 +97,11 @@ def _build_atlas(
     if palette_colors.shape[0] == 0:
         raise ValueError("Palette must contain at least one color.")
 
-    return np.stack(
+    atlas = np.stack(
         [
             np.asarray(
                 render_tile(
-                    tuple(int(channel) for channel in color),
+                    (int(color[0]), int(color[1]), int(color[2])),
                     tile_size,
                 )
             )
@@ -88,6 +109,8 @@ def _build_atlas(
         ],
         axis=0,
     )
+    atlas.flags.writeable = False
+    return atlas
 
 
 @lru_cache(maxsize=None)
@@ -99,6 +122,7 @@ def get_atlas(
         palette=palette,
         tile_size=tile_size,
     )
+
 
 def render_indices(
     indices: np.ndarray,
@@ -152,4 +176,4 @@ def render_mosaic(
 
     mosaic_rgb = render_indices(indices, atlas)
 
-    return Image.fromarray(mosaic_rgb, mode="RGB")
+    return Image.fromarray(mosaic_rgb)
