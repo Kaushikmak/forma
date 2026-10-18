@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Final
 
@@ -6,16 +8,14 @@ from skimage.color import rgb2lab
 
 from config import Palette
 
-LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
+# Curated solid LEGO colors (no duplicates, no unrenderable transparent/metallic colors)
+CLASSIC_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
     # Neutrals
     "white": (255, 255, 255),
     "black": (5, 19, 29),
-    # Grays
-    "very_light_gray": (230, 227, 218),
+    # Modern Bluish Grays
     "very_light_bluish_gray": (230, 227, 224),
-    "light_gray": (155, 161, 157),
     "light_bluish_gray": (160, 165, 169),
-    "dark_gray": (109, 110, 92),
     "dark_bluish_gray": (108, 110, 104),
     # Reds / pinks
     "red": (201, 26, 9),
@@ -84,10 +84,17 @@ LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
     "nougat": (208, 145, 104),
     "medium_nougat": (170, 125, 85),
     "medium_dark_flesh": (204, 112, 42),
-    # Transparent
+}
+
+# Extended palette including vintage grays, transparents, and metallics (with duplicates removed)
+EXTENDED_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
+    **CLASSIC_PALETTE,
+    # Vintage grays
+    "very_light_gray": (230, 227, 218),
+    "light_gray": (155, 161, 157),
+    "dark_gray": (109, 110, 92),
+    # Transparents (unique RGB values only; trans_red and trans_orange excluded as duplicates)
     "trans_clear": (252, 252, 252),
-    "trans_red": (201, 26, 9),
-    "trans_orange": (240, 143, 28),
     "trans_yellow": (245, 205, 42),
     "trans_green": (132, 182, 141),
     "trans_light_blue": (104, 188, 197),
@@ -100,6 +107,9 @@ LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = {
     "pearl_gold": (170, 127, 46),
     "pearl_dark_gray": (107, 90, 90),
 }
+
+# Backwards compatibility alias
+LEGO_PALETTE: Final[dict[str, tuple[int, int, int]]] = CLASSIC_PALETTE
 
 
 @dataclass(frozen=True)
@@ -116,10 +126,12 @@ def _build_palette(
         list(colors.values()),
         dtype=np.uint8,
     )
+    rgb.flags.writeable = False
 
     rgb_float = rgb.astype(np.float32)
 
     lab = rgb2lab((rgb_float / 255.0).reshape(1, -1, 3))[0].astype(np.float32)
+    lab.flags.writeable = False
 
     return PaletteData(
         colors=colors,
@@ -129,7 +141,8 @@ def _build_palette(
 
 
 PALETTES: Final[dict[Palette, PaletteData]] = {
-    Palette.CLASSIC: _build_palette(LEGO_PALETTE),
+    Palette.CLASSIC: _build_palette(CLASSIC_PALETTE),
+    Palette.EXTENDED: _build_palette(EXTENDED_PALETTE),
 }
 
 
@@ -137,4 +150,5 @@ def get_palette(palette: Palette) -> PaletteData:
     try:
         return PALETTES[palette]
     except KeyError:
-        raise ValueError(f"Unsupported palette: {palette.value}")
+        val = getattr(palette, "value", str(palette))
+        raise ValueError(f"Unsupported palette: {val}")
