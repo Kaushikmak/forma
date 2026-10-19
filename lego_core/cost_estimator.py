@@ -14,6 +14,7 @@ from resource_limits import (
     MAX_VIDEO_BITRATE_BPS,
     MIN_VIDEO_BITRATE_BPS,
     ResourceLimitError,
+    is_resource_limits_bypassed,
     validate_bitrate,
 )
 
@@ -75,6 +76,7 @@ def select_bitrate_bps(
     quality: Quality,
     duration_seconds: float,
     configured_mbps: float | None = None,
+    bypass_limits: bool | None = None,
 ) -> int:
     """
     Select the video bitrate in bits per second.
@@ -86,14 +88,19 @@ def select_bitrate_bps(
     if duration_seconds <= 0:
         raise ValueError("duration_seconds must be positive.")
 
+    should_bypass = bypass_limits if bypass_limits is not None else is_resource_limits_bypassed()
+
     if configured_mbps is not None:
         if configured_mbps <= 0:
             raise ValueError("configured bitrate must be positive.")
         bps = int(round(configured_mbps * 1_000_000))
-        validate_bitrate(bps)
+        validate_bitrate(bps, bypass=should_bypass)
         return bps
 
     estimate = _estimate_bitrate(width, height, fps, quality)
+    if should_bypass:
+        return max(MIN_VIDEO_BITRATE_BPS, min(estimate, MAX_VIDEO_BITRATE_BPS))
+
     # Size cap based on MAX_OUTPUT_SIZE_BYTES with 10% margin for container/muxing
     size_cap = int((MAX_OUTPUT_SIZE_BYTES * 8 * 0.9) / duration_seconds)
     if size_cap < MIN_VIDEO_BITRATE_BPS:
@@ -168,6 +175,7 @@ def estimate_video_cost(
         quality=config.quality,
         duration_seconds=duration_seconds,
         configured_mbps=config.bitrate_mbps,
+        bypass_limits=config.bypass_limits,
     )
 
     estimated_size_bytes = int(bitrate_bps * duration_seconds / 8)

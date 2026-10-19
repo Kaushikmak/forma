@@ -80,6 +80,7 @@ def _reader(
     errors: list[BaseException],
     source_fps: float,
     output_fps: float,
+    bypass_limits: bool = False,
 ) -> None:
     """
     Decode and downscale source frames, assigning each to output frame slots.
@@ -92,7 +93,7 @@ def _reader(
     try:
         current_frame = first_frame
         while not stop_event.is_set():
-            if frame_index > max_frames:
+            if not bypass_limits and frame_index > max_frames:
                 raise ResourceLimitError(
                     f"Video exceeds maximum allowed duration "
                     f"({MAX_VIDEO_DURATION_SECONDS:.0f} seconds)."
@@ -274,9 +275,9 @@ def video_to_mosaic_file(
     if output_path.suffix.lower() != ".mp4":
         raise ValueError("Video output must use the .mp4 extension.")
 
-    validate_input_size(input_path.stat().st_size)
-    validate_workers(config.workers)
-    validate_buffer_size(config.buffer_size)
+    validate_input_size(input_path.stat().st_size, bypass=config.bypass_limits)
+    validate_workers(config.workers, bypass=config.bypass_limits)
+    validate_buffer_size(config.buffer_size, bypass=config.bypass_limits)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Temporary file for atomic writing (Fix H6)
@@ -292,7 +293,7 @@ def video_to_mosaic_file(
         if not np.isfinite(source_fps) or source_fps <= 0:
             raise RuntimeError("Could not determine video frame rate.")
 
-        validate_video_fps(source_fps)
+        validate_video_fps(source_fps, bypass=config.bypass_limits)
 
         frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count < 1:
@@ -308,10 +309,10 @@ def video_to_mosaic_file(
             raise RuntimeError("Could not determine video dimensions.")
 
         output_fps = resolve_output_fps(config.fps, source_fps)
-        validate_video_fps(output_fps)
+        validate_video_fps(output_fps, bypass=config.bypass_limits)
 
         est_duration = frame_count / source_fps
-        validate_video_duration(est_duration)
+        validate_video_duration(est_duration, bypass=config.bypass_limits)
 
         grid_width, grid_height = calculate_grid_dimensions(
             config.grid_width, source_width, source_height
@@ -319,7 +320,7 @@ def video_to_mosaic_file(
         output_width, output_height = calculate_output_dimensions(
             config.grid_width, config.tile_size, source_width, source_height
         )
-        validate_output_resolution(output_width, output_height)
+        validate_output_resolution(output_width, output_height, bypass=config.bypass_limits)
 
         # Estimate cost, bitrate, and units with size capping
         estimate = estimate_video_cost(
@@ -329,8 +330,8 @@ def video_to_mosaic_file(
             source_fps=source_fps,
             frame_count=frame_count,
         )
-        validate_processing_units(estimate.processing_units)
-        validate_output_size(estimate.estimated_size_bytes)
+        validate_processing_units(estimate.processing_units, bypass=config.bypass_limits)
+        validate_output_size(estimate.estimated_size_bytes, bypass=config.bypass_limits)
 
         # Pre-warm atlas and quantizer LUT before launching worker threads
         atlas = get_atlas(
@@ -365,6 +366,7 @@ def video_to_mosaic_file(
                 reader_errors,
                 source_fps,
                 output_fps,
+                config.bypass_limits,
             ),
             name="video-reader",
             daemon=True,
@@ -475,7 +477,7 @@ def video_to_mosaic_file(
             raise RuntimeError("No frames were written to the output video.")
 
         output_size = tmp_path.stat().st_size
-        validate_output_size(output_size)
+        validate_output_size(output_size, bypass=config.bypass_limits)
 
         # Atomic replacement on success
         os.replace(tmp_path, output_path)

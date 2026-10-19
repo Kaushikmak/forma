@@ -30,14 +30,31 @@ class ResourceLimitError(ValueError):
     """Raised when a requested job exceeds a resource limit."""
 
 
+_BYPASS_RESOURCE_LIMITS: bool = False
+
+
+def set_bypass_resource_limits(bypass: bool = True) -> None:
+    """Globally enable or disable bypassing of resource limits."""
+    global _BYPASS_RESOURCE_LIMITS
+    _BYPASS_RESOURCE_LIMITS = bypass
+
+
+def is_resource_limits_bypassed() -> bool:
+    """Return whether resource limits are currently bypassed."""
+    return _BYPASS_RESOURCE_LIMITS
+
+
 # Input validation
 
 
-def validate_input_size(size_bytes: int) -> None:
+def validate_input_size(size_bytes: int, bypass: bool | None = None) -> None:
     """Reject input files that exceed the configured input limit."""
 
     if size_bytes < 0:
         raise ValueError("Input file size cannot be negative.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if size_bytes > MAX_INPUT_SIZE_BYTES:
         raise ResourceLimitError(
@@ -53,11 +70,15 @@ def validate_input_size(size_bytes: int) -> None:
 def validate_output_resolution(
     width: int,
     height: int,
+    bypass: bool | None = None,
 ) -> None:
     """Reject output resolutions that exceed the pixel budget."""
 
     if width < 1 or height < 1:
         raise ResourceLimitError("Output dimensions must be positive.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     pixels = width * height
 
@@ -70,11 +91,14 @@ def validate_output_resolution(
         )
 
 
-def validate_output_size(size_bytes: int) -> None:
+def validate_output_size(size_bytes: int, bypass: bool | None = None) -> None:
     """Reject output files that exceed the storage limit."""
 
     if size_bytes < 0:
         raise ValueError("Output file size cannot be negative.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if size_bytes > MAX_OUTPUT_SIZE_BYTES:
         raise ResourceLimitError(
@@ -89,11 +113,15 @@ def validate_output_size(size_bytes: int) -> None:
 
 def validate_video_duration(
     duration_seconds: float,
+    bypass: bool | None = None,
 ) -> None:
     """Reject videos that are too long."""
 
     if duration_seconds <= 0:
         raise ResourceLimitError("Video duration must be positive.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if duration_seconds > MAX_VIDEO_DURATION_SECONDS:
         raise ResourceLimitError(
@@ -103,11 +131,14 @@ def validate_video_duration(
         )
 
 
-def validate_video_fps(fps: float) -> None:
+def validate_video_fps(fps: float, bypass: bool | None = None) -> None:
     """Reject unsupported video frame rates."""
 
     if fps <= 0:
         raise ResourceLimitError("Video FPS must be positive.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if fps > MAX_VIDEO_FPS:
         raise ResourceLimitError(
@@ -117,8 +148,13 @@ def validate_video_fps(fps: float) -> None:
         )
 
 
-def validate_bitrate(bitrate_bps: int) -> None:
+def validate_bitrate(bitrate_bps: int, bypass: bool | None = None) -> None:
     """Reject unsafe video bitrate values."""
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        if bitrate_bps <= 0:
+            raise ResourceLimitError("Video bitrate must be positive.")
+        return
 
     if bitrate_bps < MIN_VIDEO_BITRATE_BPS:
         raise ResourceLimitError(
@@ -142,11 +178,15 @@ def validate_bitrate(bitrate_bps: int) -> None:
 
 def validate_gif_duration(
     duration_seconds: float,
+    bypass: bool | None = None,
 ) -> None:
     """Reject GIFs that are too long."""
 
     if duration_seconds <= 0:
         raise ResourceLimitError("GIF duration must be positive.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if duration_seconds > MAX_GIF_DURATION_SECONDS:
         raise ResourceLimitError(
@@ -158,11 +198,15 @@ def validate_gif_duration(
 
 def validate_gif_frames(
     frame_count: int,
+    bypass: bool | None = None,
 ) -> None:
     """Reject GIFs containing too many frames."""
 
     if frame_count < 1:
         raise ResourceLimitError("GIF must contain at least one frame.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if frame_count > MAX_GIF_FRAMES:
         raise ResourceLimitError(
@@ -177,11 +221,15 @@ def validate_gif_frames(
 
 def validate_processing_units(
     processing_units: int,
+    bypass: bool | None = None,
 ) -> None:
     """Reject jobs with excessive estimated processing work."""
 
     if processing_units < 0:
         raise ValueError("processing_units cannot be negative.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if processing_units > MAX_PROCESSING_UNITS:
         raise ResourceLimitError(
@@ -191,21 +239,27 @@ def validate_processing_units(
         )
 
 
-def validate_workers(workers: int) -> None:
+def validate_workers(workers: int, bypass: bool | None = None) -> None:
     """Reject excessive worker counts."""
 
     if workers < 1:
         raise ResourceLimitError("workers must be positive.")
 
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
+
     if workers > MAX_WORKERS:
         raise ResourceLimitError(f"workers must not exceed {MAX_WORKERS}.")
 
 
-def validate_buffer_size(buffer_size: int) -> None:
+def validate_buffer_size(buffer_size: int, bypass: bool | None = None) -> None:
     """Reject excessive queue buffer sizes."""
 
     if buffer_size < 1:
         raise ResourceLimitError("buffer_size must be positive.")
+
+    if bypass is True or (bypass is None and _BYPASS_RESOURCE_LIMITS):
+        return
 
     if buffer_size > MAX_BUFFER_SIZE:
         raise ResourceLimitError(f"buffer_size must not exceed {MAX_BUFFER_SIZE}.")

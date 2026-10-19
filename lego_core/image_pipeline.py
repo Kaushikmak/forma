@@ -40,10 +40,10 @@ def image_to_mosaic(
     output_width, output_height = calculate_output_dimensions(
         config.grid_width, config.tile_size, orig_w, orig_h
     )
-    validate_output_resolution(output_width, output_height)
+    validate_output_resolution(output_width, output_height, bypass=config.bypass_limits)
 
     estimate = estimate_image_cost(config, orig_w, orig_h)
-    validate_processing_units(estimate.processing_units)
+    validate_processing_units(estimate.processing_units, bypass=config.bypass_limits)
 
     _, grid_height = calculate_grid_dimensions(config.grid_width, orig_w, orig_h)
     small_image = downscale_image(rgb_image, (config.grid_width, grid_height))
@@ -75,7 +75,7 @@ def image_to_mosaic_file(
     if not input_path.is_file():
         raise FileNotFoundError(f"Input image does not exist: {input_path}")
 
-    validate_input_size(input_path.stat().st_size)
+    validate_input_size(input_path.stat().st_size, bypass=config.bypass_limits)
 
     if input_path.resolve() == output_path.resolve():
         raise ValueError("Input and output paths must be different.")
@@ -93,7 +93,7 @@ def image_to_mosaic_file(
     mosaic.save(output_path, **save_kwargs)
 
     try:
-        validate_output_size(output_path.stat().st_size)
+        validate_output_size(output_path.stat().st_size, bypass=config.bypass_limits)
     except ResourceLimitError:
         output_path.unlink(missing_ok=True)
         raise

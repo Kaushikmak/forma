@@ -144,12 +144,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    parser.add_argument(
+        "-f",
+        "--force",
+        "--bypass",
+        "--bypass-limits",
+        dest="force",
+        action="store_true",
+        help="Bypass all resource limits and continue execution.",
+    )
+
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.force:
+        from resource_limits import set_bypass_resource_limits
+
+        set_bypass_resource_limits(True)
+        Image.MAX_IMAGE_PIXELS = None
 
     input_path: Path = args.input
 
@@ -188,11 +204,17 @@ def main() -> None:
             f"Supported: {sorted(supported_outputs[args.media_type])}"
         )
 
-    if args.workers < 1 or args.workers > MAX_WORKERS:
-        parser.error(f"--workers must be between 1 and {MAX_WORKERS}")
+    if not args.force:
+        if args.workers < 1 or args.workers > MAX_WORKERS:
+            parser.error(f"--workers must be between 1 and {MAX_WORKERS}")
 
-    if args.buffer_size < 1 or args.buffer_size > MAX_BUFFER_SIZE:
-        parser.error(f"--buffer-size must be between 1 and {MAX_BUFFER_SIZE}")
+        if args.buffer_size < 1 or args.buffer_size > MAX_BUFFER_SIZE:
+            parser.error(f"--buffer-size must be between 1 and {MAX_BUFFER_SIZE}")
+    else:
+        if args.workers < 1:
+            parser.error("--workers must be positive")
+        if args.buffer_size < 1:
+            parser.error("--buffer-size must be positive")
 
     if args.media_type != "video" and args.bitrate_mbps is not None:
         parser.error("--bitrate-mbps is only supported for video files")
@@ -213,6 +235,7 @@ def main() -> None:
             workers=args.workers,
             buffer_size=args.buffer_size,
             bitrate_mbps=args.bitrate_mbps,
+            bypass_limits=args.force,
         )
     except ValueError as exc:
         parser.error(str(exc))

@@ -38,7 +38,7 @@ def gif_to_mosaic_file(
     if not input_path.is_file():
         raise FileNotFoundError(f"Input GIF does not exist: {input_path}")
 
-    validate_input_size(input_path.stat().st_size)
+    validate_input_size(input_path.stat().st_size, bypass=config.bypass_limits)
 
     if input_path.resolve() == output_path.resolve():
         raise ValueError("Input and output paths must be different.")
@@ -65,7 +65,7 @@ def gif_to_mosaic_file(
         n_frames = getattr(source, "n_frames", 1)
 
         # Enforce frame count limit upfront before decoding frames
-        validate_gif_frames(n_frames)
+        validate_gif_frames(n_frames, bypass=config.bypass_limits)
 
         # Probe durations by seeking without decoding pixel buffers
         source_durations: list[int] = []
@@ -77,22 +77,22 @@ def gif_to_mosaic_file(
             source_durations.append(delay)
             total_duration_ms += delay
             # Fail early if accumulated duration exceeds limit
-            validate_gif_duration(total_duration_ms / 1000.0)
+            validate_gif_duration(total_duration_ms / 1000.0, bypass=config.bypass_limits)
 
         source.seek(0)
         total_duration_sec = total_duration_ms / 1000.0
-        validate_gif_duration(total_duration_sec)
+        validate_gif_duration(total_duration_sec, bypass=config.bypass_limits)
 
         orig_w, orig_h = source.size
         output_w, output_h = calculate_output_dimensions(
             config.grid_width, config.tile_size, orig_w, orig_h
         )
-        validate_output_resolution(output_w, output_h)
+        validate_output_resolution(output_w, output_h, bypass=config.bypass_limits)
 
         estimate = estimate_gif_cost(
             config, orig_w, orig_h, n_frames, total_duration_sec
         )
-        validate_processing_units(estimate.processing_units)
+        validate_processing_units(estimate.processing_units, bypass=config.bypass_limits)
 
         # Frame mapping & timing accumulator
         target_fps = None if config.fps == FPS.ORIGINAL else float(config.fps.val)
@@ -102,7 +102,7 @@ def gif_to_mosaic_file(
         else:
             # Resample frames using accumulated timestamps in centisecond steps
             target_frame_count = max(1, int(round(total_duration_sec * target_fps)))
-            validate_gif_frames(target_frame_count)
+            validate_gif_frames(target_frame_count, bypass=config.bypass_limits)
 
             selected_source_indices = []
             selected_durations = []
@@ -177,7 +177,7 @@ def gif_to_mosaic_file(
 
     # Validate output size and delete if oversized
     try:
-        validate_output_size(output_path.stat().st_size)
+        validate_output_size(output_path.stat().st_size, bypass=config.bypass_limits)
     except ResourceLimitError:
         output_path.unlink(missing_ok=True)
         raise
