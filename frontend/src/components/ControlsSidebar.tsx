@@ -261,7 +261,16 @@ export default function ControlsSidebar({
       <div className="space-y-2.5">
         <label className="text-xs font-medium text-zinc-300 block">
           Color Palette
-          <p className="text-[10px] text-gray-300">have more ideas? <a className="underline" target="_blank" href="https://github.com/Kaushikmak/forma">make a pr</a></p>
+          <p className="text-[10px] text-gray-300">
+            have more ideas?{" "}
+            <a
+              className="underline"
+              target="_blank"
+              href="https://github.com/Kaushikmak/forma"
+            >
+              make a pr
+            </a>
+          </p>
         </label>
 
         <div className="grid grid-cols-2 gap-2">
@@ -276,12 +285,7 @@ export default function ControlsSidebar({
                 : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700",
             ].join(" ")}
           >
-            <div>
-              <div className="text-xs font-medium text-white">Classic</div>
-              <div className="text-[10px] text-zinc-400 mt-0.5">
-                65 Curated Bricks
-              </div>
-            </div>
+            <div className="text-xs font-medium text-white">Classic</div>
 
             <div className="flex gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-[#c91a09]" />
@@ -303,12 +307,8 @@ export default function ControlsSidebar({
                 : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700",
             ].join(" ")}
           >
-            <div>
-              <div className="text-xs font-medium text-white">Extended</div>
-              <div className="text-[10px] text-zinc-400 mt-0.5">
-                79 Bricks + Metallics
-              </div>
-            </div>
+            <div className="text-xs font-medium text-white">Extended</div>
+
             <div className="flex gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-[#898788]" />
               <span className="w-2.5 h-2.5 rounded-full bg-[#ba9842]" />
@@ -322,9 +322,7 @@ export default function ControlsSidebar({
 
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-zinc-300">
-            Quality
-          </label>
+          <label className="text-xs font-medium text-zinc-300">Quality</label>
         </div>
 
         <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-zinc-950/60 border border-zinc-800">
