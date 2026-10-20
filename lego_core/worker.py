@@ -25,6 +25,113 @@ from resource_limits import (
 )
 from video_pipeline import video_to_mosaic_file
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    _backend_env = Path(__file__).resolve().parent.parent / "backend" / ".env"
+    if _backend_env.is_file():
+        load_dotenv(_backend_env)
+    _root_env = Path(__file__).resolve().parent.parent / ".env"
+    if _root_env.is_file():
+        load_dotenv(_root_env)
+except ImportError:
+    pass
+
+
+def download_from_supabase_if_needed(input_path: Path, bucket: str, key: str) -> bool:
+    """Download input file from Supabase Storage if not present locally."""
+    if input_path.is_file():
+        return True
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    if not supabase_url or not supabase_key:
+        return False
+
+    b_lower = bucket.lower()
+    clean_key = key
+    if clean_key.lower().startswith(f"{b_lower}/"):
+        clean_key = clean_key[len(b_lower) + 1:]
+    if (b_lower in ("upload", "uploads")) and clean_key.startswith("uploads/"):
+        clean_key = clean_key[len("uploads/"):]
+    if (b_lower in ("results", "outputs")) and clean_key.startswith("outputs/"):
+        clean_key = clean_key[len("outputs/"):]
+    clean_key = clean_key.lstrip("/")
+
+    resolved_bucket = "upload" if b_lower in ("upload", "uploads") else ("Results" if b_lower in ("results", "outputs") else bucket)
+
+    import urllib.request
+    import urllib.error
+
+    url = f"{supabase_url.rstrip('/')}/storage/v1/object/authenticated/{resolved_bucket}/{clean_key}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+        },
+        method="GET",
+    )
+
+    try:
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            with open(input_path, "wb") as f:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        return input_path.is_file() and input_path.stat().st_size > 0
+    except Exception as exc:
+        sys.stderr.write(f"[Worker] Failed to download {resolved_bucket}/{clean_key} from Supabase: {exc}\n")
+        if input_path.exists():
+            input_path.unlink(missing_ok=True)
+        return False
+
+
+def upload_to_supabase_if_configured(output_path: Path, bucket: str, key: str, content_type: str) -> bool:
+    """Upload result file to Supabase Storage if remote credentials exist."""
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    if not supabase_url or not supabase_key or not output_path.is_file():
+        return False
+
+    b_lower = bucket.lower()
+    clean_key = key
+    if clean_key.lower().startswith(f"{b_lower}/"):
+        clean_key = clean_key[len(b_lower) + 1:]
+    if (b_lower in ("results", "outputs")) and clean_key.startswith("outputs/"):
+        clean_key = clean_key[len("outputs/"):]
+    clean_key = clean_key.lstrip("/")
+
+    resolved_bucket = "Results" if b_lower in ("results", "outputs") else bucket
+
+    import urllib.request
+    import urllib.error
+
+    url = f"{supabase_url.rstrip('/')}/storage/v1/object/{resolved_bucket}/{clean_key}"
+    try:
+        with open(output_path, "rb") as f:
+            file_bytes = f.read()
+
+        req = urllib.request.Request(
+            url,
+            data=file_bytes,
+            headers={
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type": content_type or "application/octet-stream",
+                "x-upsert": "true",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.status in (200, 201)
+    except Exception as exc:
+        sys.stderr.write(f"[Worker] Failed to upload {resolved_bucket}/{clean_key} to Supabase: {exc}\n")
+        return False
+
 
 def detect_media_kind(file_path: Path) -> str:
     """Detect media kind ('image', 'gif', 'video') from file magic bytes."""
@@ -177,15 +284,18 @@ def process_worker_job(
     input_path = (storage_root / input_key).resolve()
 
     if not input_path.is_file():
-        err_res = {
-            "jobId": job_id,
-            "status": "rejected",
-            "errorCode": "INPUT_MISSING",
-            "errorMessage": f"Input object not found in storage: {input_key}",
-            "refundable": 0,
-        }
-        on_event(err_res)
-        return err_res
+        input_bucket = input_spec.get("bucket", "upload")
+        downloaded = download_from_supabase_if_needed(input_path, input_bucket, input_key)
+        if not downloaded or not input_path.is_file():
+            err_res = {
+                "jobId": job_id,
+                "status": "rejected",
+                "errorCode": "INPUT_MISSING",
+                "errorMessage": f"Input object not found in storage: {input_key}",
+                "refundable": 0,
+            }
+            on_event(err_res)
+            return err_res
 
     limits = job_envelope.get("limits") or {}
     max_bytes = min(limits.get("maxBytes", MAX_INPUT_SIZE_BYTES), MAX_INPUT_SIZE_BYTES)
@@ -398,11 +508,14 @@ def process_worker_job(
 
     elapsed_ms = int((time.monotonic() - start_time) * 1000)
 
+    output_bucket = output_spec.get("bucket", "Results")
+    upload_to_supabase_if_configured(output_path, output_bucket, result_key, content_type)
+
     done_res = {
         "jobId": job_id,
         "status": "done",
         "progress": 100,
-        "resultBucket": output_spec.get("bucket", "outputs"),
+        "resultBucket": output_bucket,
         "resultKey": result_key,
         "contentType": content_type,
         "width": final_w,
@@ -475,7 +588,121 @@ def consume_redis_streams(
     signal.signal(signal.SIGINT, sig_handler)
     signal.signal(signal.SIGTERM, sig_handler)
 
+    def handle_message(stream_name: str, msg_id: str, fields: dict[str, Any]) -> None:
+        try:
+            raw_data = fields.get("data")
+            if not raw_data:
+                sys.stderr.write(f"[Worker] Skipping invalid message {msg_id}: no 'data' field\n")
+                client.xack(stream_name, group_name, msg_id)
+                return
+
+            envelope = json.loads(raw_data)
+            job_id = envelope.get("jobId", "unknown")
+            hash_key = f"{prefix}:job:{job_id}"
+            event_channel = f"{prefix}:job:{job_id}:events"
+
+            def publish_event(event_dict: dict[str, Any]) -> None:
+                # Update hash in Redis
+                hash_updates: dict[str, str] = {}
+                for k, v in event_dict.items():
+                    if v is not None:
+                        hash_updates[k] = str(v)
+                hash_updates["updatedAt"] = str(int(time.time() * 1000))
+                try:
+                    client.hset(hash_key, mapping=hash_updates)
+                except Exception as h_err:
+                    sys.stderr.write(f"[Worker] Failed to update hash {hash_key}: {h_err}\n")
+
+                # Publish to Redis Pub/Sub
+                try:
+                    client.publish(event_channel, json.dumps(event_dict))
+                except Exception as p_err:
+                    sys.stderr.write(f"[Worker] Failed to publish event to {event_channel}: {p_err}\n")
+
+                # If terminal, write to finished events stream
+                status = event_dict.get("status")
+                if status in ("done", "failed", "rejected", "cancelled", "expired"):
+                    finished_entry = {
+                        "jobId": job_id,
+                        "status": status,
+                        "refundable": str(event_dict.get("refundable", 0)),
+                    }
+                    if "errorCode" in event_dict and event_dict["errorCode"]:
+                        finished_entry["errorCode"] = str(event_dict["errorCode"])
+                    try:
+                        client.xadd(f"{prefix}:events:finished", finished_entry)
+                    except Exception as f_err:
+                        sys.stderr.write(f"[Worker] Failed to append to finished stream: {f_err}\n")
+
+            # Check cancellation
+            try:
+                job_hash = client.hgetall(hash_key)
+            except Exception:
+                job_hash = {}
+
+            if job_hash.get("cancel") == "1":
+                publish_event({
+                    "jobId": job_id,
+                    "status": "cancelled",
+                    "errorCode": "CANCELLED",
+                    "errorMessage": "Job was cancelled by client.",
+                    "refundable": 0,
+                })
+                client.xack(stream_name, group_name, msg_id)
+                return
+
+            # Check expiration
+            now_ms = int(time.time() * 1000)
+            if envelope.get("expiresAt", float("inf")) < now_ms:
+                publish_event({
+                    "jobId": job_id,
+                    "status": "expired",
+                    "errorCode": "EXPIRED",
+                    "errorMessage": "Job expired before processing started.",
+                    "refundable": 0,
+                })
+                client.xack(stream_name, group_name, msg_id)
+                return
+
+            def check_cancelled() -> bool:
+                try:
+                    return client.hget(hash_key, "cancel") == "1"
+                except Exception:
+                    return False
+
+            # Increment attempts
+            try:
+                client.hincrby(hash_key, "attempts", 1)
+            except Exception:
+                pass
+
+            # Process the job
+            process_worker_job(
+                envelope,
+                storage_root,
+                on_event=publish_event,
+                cancel_check=check_cancelled,
+            )
+
+        except Exception as exc:
+            sys.stderr.write(f"[Worker] Error processing job from message {msg_id}: {exc}\n")
+        finally:
+            try:
+                client.xack(stream_name, group_name, msg_id)
+            except Exception:
+                pass
+
     while not stop_requested:
+        # Check for idle pending messages from prior crashed workers
+        for s_key in streams_dict.keys():
+            try:
+                claimed = client.xautoclaim(s_key, group_name, consumer_name, min_idle_time=30000, start_id="0-0", count=5)
+                if claimed and len(claimed) >= 2 and claimed[1]:
+                    for c_msg_id, c_fields in claimed[1]:
+                        handle_message(s_key, c_msg_id, c_fields)
+            except Exception:
+                pass
+
         try:
             entries = client.xreadgroup(
                 groupname=group_name,
@@ -502,109 +729,7 @@ def consume_redis_streams(
 
         for stream_name, messages in entries:
             for msg_id, fields in messages:
-                try:
-                    raw_data = fields.get("data")
-                    if not raw_data:
-                        sys.stderr.write(f"[Worker] Skipping invalid message {msg_id}: no 'data' field\n")
-                        client.xack(stream_name, group_name, msg_id)
-                        continue
-
-                    envelope = json.loads(raw_data)
-                    job_id = envelope.get("jobId", "unknown")
-                    hash_key = f"{prefix}:job:{job_id}"
-                    event_channel = f"{prefix}:job:{job_id}:events"
-
-                    def publish_event(event_dict: dict[str, Any]) -> None:
-                        # Update hash in Redis
-                        hash_updates: dict[str, str] = {}
-                        for k, v in event_dict.items():
-                            if v is not None:
-                                hash_updates[k] = str(v)
-                        hash_updates["updatedAt"] = str(int(time.time() * 1000))
-                        try:
-                            client.hset(hash_key, mapping=hash_updates)
-                        except Exception as h_err:
-                            sys.stderr.write(f"[Worker] Failed to update hash {hash_key}: {h_err}\n")
-
-                        # Publish to Redis Pub/Sub
-                        try:
-                            client.publish(event_channel, json.dumps(event_dict))
-                        except Exception as p_err:
-                            sys.stderr.write(f"[Worker] Failed to publish event to {event_channel}: {p_err}\n")
-
-                        # If terminal, write to finished events stream
-                        status = event_dict.get("status")
-                        if status in ("done", "failed", "rejected", "cancelled", "expired"):
-                            finished_entry = {
-                                "jobId": job_id,
-                                "status": status,
-                                "refundable": str(event_dict.get("refundable", 0)),
-                            }
-                            if "errorCode" in event_dict and event_dict["errorCode"]:
-                                finished_entry["errorCode"] = str(event_dict["errorCode"])
-                            try:
-                                client.xadd(f"{prefix}:events:finished", finished_entry)
-                            except Exception as f_err:
-                                sys.stderr.write(f"[Worker] Failed to append to finished stream: {f_err}\n")
-
-                    # Check cancellation
-                    try:
-                        job_hash = client.hgetall(hash_key)
-                    except Exception:
-                        job_hash = {}
-
-                    if job_hash.get("cancel") == "1":
-                        publish_event({
-                            "jobId": job_id,
-                            "status": "cancelled",
-                            "errorCode": "CANCELLED",
-                            "errorMessage": "Job was cancelled by client.",
-                            "refundable": 0,
-                        })
-                        client.xack(stream_name, group_name, msg_id)
-                        continue
-
-                    # Check expiration
-                    now_ms = int(time.time() * 1000)
-                    if envelope.get("expiresAt", float("inf")) < now_ms:
-                        publish_event({
-                            "jobId": job_id,
-                            "status": "expired",
-                            "errorCode": "EXPIRED",
-                            "errorMessage": "Job expired before processing started.",
-                            "refundable": 0,
-                        })
-                        client.xack(stream_name, group_name, msg_id)
-                        continue
-
-                    def check_cancelled() -> bool:
-                        try:
-                            return client.hget(hash_key, "cancel") == "1"
-                        except Exception:
-                            return False
-
-                    # Increment attempts
-                    try:
-                        client.hincrby(hash_key, "attempts", 1)
-                    except Exception:
-                        pass
-
-                    # Process the job
-                    process_worker_job(
-                        envelope,
-                        storage_root,
-                        on_event=publish_event,
-                        cancel_check=check_cancelled,
-                    )
-
-                except Exception as exc:
-                    sys.stderr.write(f"[Worker] Error processing job from message {msg_id}: {exc}\n")
-                finally:
-                    try:
-                        client.xack(stream_name, group_name, msg_id)
-                    except Exception:
-                        pass
-
+                handle_message(stream_name, msg_id, fields)
                 if once:
                     break
             if once:
