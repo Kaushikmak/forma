@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://3.110.209.161:4000/api/:path*"
+      "destination": "https://formaapi.kaushik-gupta.com/api/:path*"
     }
   ]
 }
