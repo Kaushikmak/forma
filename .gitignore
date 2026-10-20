@@ -3,3 +3,9 @@ output/
 __pycache__/
 .vscode
 tests/
+.forma_storage/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
