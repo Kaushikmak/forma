@@ -43,7 +43,7 @@ def gif_to_mosaic_file(
     if input_path.resolve() == output_path.resolve():
         raise ValueError("Input and output paths must be different.")
 
-    if input_path.suffix.lower() != ".gif":
+    if input_path.suffix and input_path.suffix.lower() != ".gif":
         raise ValueError("Input file must have a .gif extension.")
 
     if output_path.suffix.lower() != ".gif":
