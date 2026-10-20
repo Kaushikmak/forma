@@ -1,6 +1,7 @@
 name: Build and Push Docker Image
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -9,7 +10,7 @@ on:
       - "lego_core/**"
       - "Dockerfile"
       - "requirements.txt"
-      - ".github/workflows/docker.yml"
+      - ".github/workflows/**"
 
 jobs:
   build-and-push:
