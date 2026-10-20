@@ -261,8 +261,8 @@ export default function ControlsSidebar({
       <div className="space-y-2.5">
         <label className="text-xs font-medium text-zinc-300 block">
           Color Palette
-          <p className="text-[10px] text-gray-300">
-            have more ideas?{" "}
+          <p className="text-xs text-gray-300">
+            have more creative ideas?{" "}
             <a
               className="underline"
               target="_blank"
