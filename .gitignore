@@ -9,3 +9,4 @@ dist/
 .env
 .env.*
 !.env.example
+forma-key.pem
