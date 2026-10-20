@@ -1,0 +1,10 @@
+node_modules
+.git
+.forma_storage
+frontend/node_modules
+frontend/dist
+backend/node_modules
+backend/dist
+__pycache__
+.pytest_cache
+*.log
