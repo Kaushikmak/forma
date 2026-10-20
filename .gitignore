@@ -10,3 +10,4 @@ dist/
 .env.*
 !.env.example
 forma-key.pem
+requirements-dev.txt
