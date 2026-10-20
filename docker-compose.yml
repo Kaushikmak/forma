@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  forma-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - QUEUE_DRIVER=redis
+      - AUTO_START_WORKER=true
+    volumes:
+      - forma_storage:/app/.forma_storage
+
+volumes:
+  forma_storage:
