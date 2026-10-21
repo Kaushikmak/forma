@@ -29,6 +29,7 @@ export default function PreviewStage({
   const [userSelectedView, setUserSelectedView] = useState<
     "mosaic" | "original" | null
   >(null);
+  const [isDelayed, setIsDelayed] = useState(false);
 
   // Smooth video playback buffer & blob cache state
   const [videoBlobUrl, setVideoBlobUrl] = useState<string | null>(null);
@@ -67,6 +68,21 @@ export default function PreviewStage({
       job?.status === "encoding");
 
   const showingMosaic = hasResult && viewMode === "mosaic";
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (isBusy) {
+      timer = setTimeout(() => {
+        setIsDelayed(true);
+      }, 10000);
+    } else {
+      setIsDelayed(false);
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isBusy]);
 
   useEffect(() => {
     if (!job?.resultUrl || media.type !== "video") {
@@ -360,6 +376,15 @@ export default function PreviewStage({
           </button>
         </div>
       </div>
+
+      {isBusy && isDelayed && (
+        <div className="mt-2.5 w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 shadow-lg animate-in fade-in slide-in-from-top-1 duration-300">
+          <span className="text-amber-400 text-sm shrink-0">🐢</span>
+          <p className="font-sans leading-relaxed text-[11px] sm:text-xs">
+            My poor ahh got cheapest vps so please bear with me until I get good vps
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="mt-2 w-full px-3 py-2 rounded-xl bg-red-950/40 border border-red-900/60 text-xs text-red-300">
