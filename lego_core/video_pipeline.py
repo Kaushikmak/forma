@@ -243,7 +243,11 @@ def _writer(
                 except OSError:
                     pass
 
-            return_code = process.wait()
+            try:
+                return_code = process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                return_code = process.wait(timeout=5)
             if return_code != 0 and not errors:
                 errors.append(
                     RuntimeError(
