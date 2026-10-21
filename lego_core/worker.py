@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import sys
@@ -258,7 +259,7 @@ def process_worker_job(
             "status": "expired",
             "errorCode": "EXPIRED",
             "errorMessage": "Job expired before processing started.",
-            "refundable": 0,
+            "refundable": 1,
         }
         on_event(err_res)
         return err_res
@@ -282,6 +283,19 @@ def process_worker_job(
     input_spec = job_envelope["input"]
     input_key = input_spec.get("key", "")
     input_path = (storage_root / input_key).resolve()
+
+    try:
+        input_path.relative_to(storage_root)
+    except ValueError:
+        err_res = {
+            "jobId": job_id,
+            "status": "rejected",
+            "errorCode": "INVALID_PATH",
+            "errorMessage": f"Input path '{input_key}' attempts directory traversal outside storage root.",
+            "refundable": 0,
+        }
+        on_event(err_res)
+        return err_res
 
     if not input_path.is_file():
         input_bucket = input_spec.get("bucket", "upload")
@@ -429,6 +443,20 @@ def process_worker_job(
     output_spec = job_envelope["output"]
     output_prefix = output_spec.get("prefix", f"outputs/{job_id}/")
     output_dir = (storage_root / output_prefix).resolve()
+
+    try:
+        output_dir.relative_to(storage_root)
+    except ValueError:
+        err_res = {
+            "jobId": job_id,
+            "status": "rejected",
+            "errorCode": "INVALID_PATH",
+            "errorMessage": f"Output prefix '{output_prefix}' attempts directory traversal outside storage root.",
+            "refundable": 0,
+        }
+        on_event(err_res)
+        return err_res
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if media_kind == "video":
@@ -447,18 +475,39 @@ def process_worker_job(
 
     on_event({"jobId": job_id, "status": "processing", "progress": 15})
 
+    timeout_sec = limits.get("timeoutSec") or (180 if media_kind == "video" else 30)
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         if media_kind == "image":
             on_event({"jobId": job_id, "status": "processing", "progress": 50})
-            image_to_mosaic_file(input_path, output_path, config)
+            future = executor.submit(image_to_mosaic_file, input_path, output_path, config)
         elif media_kind == "gif":
             on_event({"jobId": job_id, "status": "processing", "progress": 50})
-            gif_to_mosaic_file(input_path, output_path, config)
+            future = executor.submit(gif_to_mosaic_file, input_path, output_path, config)
         else:  # video
             on_event({"jobId": job_id, "status": "processing", "progress": 50})
-            video_to_mosaic_file(input_path, output_path, config)
+            future = executor.submit(video_to_mosaic_file, input_path, output_path, config)
 
+        future.result(timeout=timeout_sec)
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    except concurrent.futures.TimeoutError:
+        executor.shutdown(wait=False, cancel_futures=True)
+        output_path.unlink(missing_ok=True)
+        tmp_video = output_path.parent / f".tmp_{output_path.name}"
+        tmp_video.unlink(missing_ok=True)
+        err_res = {
+            "jobId": job_id,
+            "status": "failed",
+            "errorCode": "TIMEOUT",
+            "errorMessage": f"Processing exceeded hard timeout limit of {timeout_sec}s.",
+            "refundable": 1,
+        }
+        on_event(err_res)
+        return err_res
     except ResourceLimitError as exc:
+        executor.shutdown(wait=False, cancel_futures=True)
         output_path.unlink(missing_ok=True)
         err_res = {
             "jobId": job_id,
@@ -470,6 +519,7 @@ def process_worker_job(
         on_event(err_res)
         return err_res
     except Exception as exc:
+        executor.shutdown(wait=False, cancel_futures=True)
         output_path.unlink(missing_ok=True)
         err_res = {
             "jobId": job_id,
@@ -659,7 +709,7 @@ def consume_redis_streams(
                     "status": "expired",
                     "errorCode": "EXPIRED",
                     "errorMessage": "Job expired before processing started.",
-                    "refundable": 0,
+                    "refundable": 1,
                 })
                 client.xack(stream_name, group_name, msg_id)
                 return
@@ -670,11 +720,27 @@ def consume_redis_streams(
                 except Exception:
                     return False
 
-            # Increment attempts
+            # Increment attempts and check poison pill
             try:
-                client.hincrby(hash_key, "attempts", 1)
+                attempts = client.hincrby(hash_key, "attempts", 1)
             except Exception:
-                pass
+                attempts = 1
+
+            if attempts > 3:
+                sys.stderr.write(f"[Worker] Job {job_id} exceeded max retry attempts ({attempts}). Marking failed and routing to DLQ.\n")
+                publish_event({
+                    "jobId": job_id,
+                    "status": "failed",
+                    "errorCode": "MAX_RETRIES_EXCEEDED",
+                    "errorMessage": f"Job crashed or failed {attempts} times and exceeded maximum retries.",
+                    "refundable": 1,
+                })
+                try:
+                    client.xadd(f"{prefix}:jobs:dead", {"jobId": job_id, "data": raw_data, "reason": "MAX_RETRIES_EXCEEDED"})
+                except Exception:
+                    pass
+                client.xack(stream_name, group_name, msg_id)
+                return
 
             # Process the job
             process_worker_job(
