@@ -134,6 +134,14 @@ function App() {
     lastDispatchedParamsRef.current = "";
     setQuotaPressCount(0);
     setQuotaToastOpen(false);
+
+    // If it's a video with <= 720p width, adapt default tile size to prevent huge upscaling
+    if (selectedMedia.type === "video" && selectedMedia.width <= 720) {
+      setParams((prev) => ({
+        ...prev,
+        tileSize: prev.tileSize > 12 ? 12 : prev.tileSize,
+      }));
+    }
   };
 
   const handleClearMedia = () => {
@@ -157,6 +165,27 @@ function App() {
 
       try {
         const deviceId = getOrCreateDeviceId();
+
+        // Calculate web-optimized bitrate if autoBitrate is on for video
+        let resolvedBitrate: number | undefined = undefined;
+        if (media?.type === "video") {
+          if (currentParams.autoBitrate) {
+            if (media.sizeBytes && media.durationSec && media.durationSec > 0) {
+              const srcBitrate =
+                (media.sizeBytes * 8) / (media.durationSec * 1_000_000);
+              // Respect source bitrate: allow ~1.15x margin for mosaic rendering, capped to 4.0 Mbps max for smooth web streaming
+              resolvedBitrate = Math.min(
+                Math.max(Number((srcBitrate * 1.15).toFixed(1)), 1.5),
+                4.0,
+              );
+            } else {
+              resolvedBitrate = 3.0;
+            }
+          } else {
+            resolvedBitrate = currentParams.bitrateMbps;
+          }
+        }
+
         const response = await fetch("/api/jobs", {
           method: "POST",
           headers: {
@@ -176,9 +205,7 @@ function App() {
               palette: currentParams.palette,
               quality: currentParams.quality,
               fps: currentParams.fps,
-              bitrateMbps: currentParams.autoBitrate
-                ? undefined
-                : currentParams.bitrateMbps,
+              bitrateMbps: resolvedBitrate,
             },
           }),
         });
@@ -209,7 +236,7 @@ function App() {
         setLocalJobStatus(null);
       }
     },
-    [refreshQuota],
+    [refreshQuota, media],
   );
 
   const handleCreateMosaic = async () => {
