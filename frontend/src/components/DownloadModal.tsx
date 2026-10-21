@@ -144,7 +144,7 @@ export default function DownloadModal({
           <div className="flex justify-between text-zinc-400">
             <span>Base Resolution:</span>
             <span className="text-zinc-200">
-              {baseWidth} × {baseHeight} px
+              {baseWidth} x {baseHeight} px
             </span>
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function DownloadModal({
                     >
                       <span className="text-sm font-bold font-mono">{s}x</span>
                       <span className="text-[10px] mt-0.5 opacity-80 font-mono">
-                        {w}×{h}
+                        {w}x{h}
                       </span>
                     </button>
                   );
