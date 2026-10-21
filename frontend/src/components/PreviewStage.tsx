@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import type { JobState, LegoParams, LocalMediaFile } from "../types/types";
 import { useMediaInspector } from "../hooks/useMediaInspector";
 import { getStageTitle, getStageDescription } from "../utils/loaderutil";
@@ -22,10 +22,19 @@ export default function PreviewStage({
   onClearMedia,
 }: PreviewStageProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const lastTimeRef = useRef(0);
+
   const { inspect, loading, error } = useMediaInspector();
   const [userSelectedView, setUserSelectedView] = useState<
     "mosaic" | "original" | null
   >(null);
+
+  // Smooth video playback buffer & blob cache state
+  const [videoBlobUrl, setVideoBlobUrl] = useState<string | null>(null);
+  const [isBufferingBlob, setIsBufferingBlob] = useState(false);
+  const [blobBufferProgress, setBlobBufferProgress] = useState(0);
+  const [isWaitingForBuffer, setIsWaitingForBuffer] = useState(false);
 
   const hasResult = Boolean(job?.resultUrl);
   const viewMode = userSelectedView ?? (hasResult ? "mosaic" : "original");
@@ -59,6 +68,86 @@ export default function PreviewStage({
 
   const showingMosaic = hasResult && viewMode === "mosaic";
 
+  useEffect(() => {
+    if (!job?.resultUrl || media.type !== "video") {
+      return;
+    }
+
+    let isCancelled = false;
+    let createdUrl: string | null = null;
+
+    const bufferVideo = async () => {
+      try {
+        setIsBufferingBlob(true);
+        setBlobBufferProgress(0);
+
+        const response = await fetch(job.resultUrl!);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch video: ${response.statusText}`);
+        }
+
+        const contentLength = response.headers.get("content-length");
+        const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+        if (!response.body || !totalBytes) {
+          const blob = await response.blob();
+          if (!isCancelled) {
+            createdUrl = URL.createObjectURL(blob);
+            setVideoBlobUrl(createdUrl);
+            setIsBufferingBlob(false);
+          }
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let receivedBytes = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            receivedBytes += value.length;
+            if (totalBytes > 0) {
+              setBlobBufferProgress(
+                Math.round((receivedBytes / totalBytes) * 100),
+              );
+            }
+          }
+        }
+
+        if (!isCancelled) {
+          const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
+          createdUrl = URL.createObjectURL(blob);
+          setVideoBlobUrl(createdUrl);
+          setIsBufferingBlob(false);
+        }
+      } catch (err) {
+        console.warn(
+          "Direct blob buffering failed, falling back to direct stream:",
+          err,
+        );
+        if (!isCancelled) {
+          setIsBufferingBlob(false);
+          setVideoBlobUrl(null);
+        }
+      }
+    };
+
+    bufferVideo();
+
+    return () => {
+      isCancelled = true;
+      setVideoBlobUrl(null);
+      setIsBufferingBlob(false);
+      setBlobBufferProgress(0);
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [job?.resultUrl, media.type]);
+
   return (
     <div className="flex flex-col items-center w-full">
       <input
@@ -73,14 +162,35 @@ export default function PreviewStage({
       <div className="relative w-full min-h-[260px] sm:min-h-[380px] max-h-[55dvh] sm:max-h-[520px] flex items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/80 p-2.5 sm:p-3 overflow-hidden shadow-2xl group">
         <div className="max-h-[50dvh] sm:max-h-[480px] flex items-center justify-center overflow-hidden rounded-xl">
           {media.type === "video" ? (
-            showingMosaic ? (
+            <div className="relative flex items-center justify-center">
               <video
-                key={job?.resultUrl || "mosaic-video"}
-                src={job?.resultUrl || media.previewUrl}
+                ref={videoRef}
+                key={showingMosaic ? "mosaic-video" : "original-video"}
+                src={
+                  showingMosaic
+                    ? videoBlobUrl || job?.resultUrl || media.previewUrl
+                    : media.previewUrl
+                }
                 controls
-                autoPlay
+                autoPlay={showingMosaic}
                 loop
                 playsInline
+                preload="auto"
+                onWaiting={() => setIsWaitingForBuffer(true)}
+                onPlaying={() => setIsWaitingForBuffer(false)}
+                onCanPlay={() => setIsWaitingForBuffer(false)}
+                onTimeUpdate={(e) => {
+                  lastTimeRef.current = e.currentTarget.currentTime;
+                }}
+                onLoadedMetadata={(e) => {
+                  if (lastTimeRef.current > 0 && showingMosaic) {
+                    try {
+                      e.currentTarget.currentTime = lastTimeRef.current;
+                    } catch {
+                      // ignore if not seekable yet
+                    }
+                  }
+                }}
                 className={[
                   "max-h-[50dvh] sm:max-h-[480px] w-auto max-w-full rounded-lg object-contain",
                   isBusy
@@ -88,19 +198,32 @@ export default function PreviewStage({
                     : "transition-all duration-300",
                 ].join(" ")}
               />
-            ) : (
-              <video
-                src={media.previewUrl}
-                controls
-                playsInline
-                className={[
-                  "max-h-[50dvh] sm:max-h-[480px] w-auto max-w-full rounded-lg object-contain",
-                  isBusy
-                    ? "blur-md brightness-75 scale-[0.98] transition-all duration-300"
-                    : "transition-all duration-300",
-                ].join(" ")}
-              />
-            )
+
+              {isWaitingForBuffer && !isBusy && !videoBlobUrl && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] pointer-events-none transition-all duration-200 z-10">
+                  <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-700/80 text-xs text-white shadow-2xl">
+                    <span className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <span className="font-medium font-sans">
+                      Buffering stream...
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {isBufferingBlob &&
+                showingMosaic &&
+                blobBufferProgress > 0 &&
+                blobBufferProgress < 100 && (
+                  <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all animate-in fade-in duration-200">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-950/85 backdrop-blur-md border border-zinc-800 text-[11px] text-zinc-300 shadow-lg">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                      <span className="font-mono">
+                        Caching for smooth playback: {blobBufferProgress}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+            </div>
           ) : (
             <img
               src={
