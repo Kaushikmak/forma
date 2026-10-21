@@ -12,9 +12,9 @@ export interface WorkerSupervisorOptions {
 }
 
 export class WorkerSupervisor {
-  private child: ChildProcess | null = null;
+  private children = new Map<string, ChildProcess>();
+  private restartTimers = new Map<string, NodeJS.Timeout>();
   private isShuttingDown = false;
-  private restartTimer: NodeJS.Timeout | null = null;
   private options: WorkerSupervisorOptions;
   private isStarted = false;
 
@@ -26,7 +26,11 @@ export class WorkerSupervisor {
     if (this.isStarted) return;
     this.isStarted = true;
     this.isShuttingDown = false;
-    this.spawnWorker();
+
+    const lanes = this.options.lanes || ["image", "video"];
+    for (const lane of lanes) {
+      this.spawnWorkerForLane(lane);
+    }
 
     const cleanup = () => this.stop();
     process.once("SIGINT", cleanup);
@@ -38,10 +42,9 @@ export class WorkerSupervisor {
     return url.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
   }
 
-  private spawnWorker(): void {
+  private spawnWorkerForLane(lane: string): void {
     if (this.isShuttingDown) return;
 
-    const lanes = this.options.lanes?.join(",") || "image,video";
     const groupName = this.options.groupName || "mosaic-workers";
     const scriptPath = path.resolve(this.options.workerScript);
 
@@ -53,18 +56,20 @@ export class WorkerSupervisor {
     const args = [
       scriptPath,
       "--consume",
-      lanes,
+      lane,
       "--prefix",
       this.options.prefix,
       "--group-name",
       groupName,
+      "--consumer-name",
+      `worker-${lane}-${process.pid}`,
       "--storage-root",
       this.options.storageDir,
     ];
 
     const maskedUrl = this.maskUrl(this.options.redisUrl);
     console.log(
-      `[Worker Supervisor] Launching Python worker consumer for lanes [${lanes}] (${maskedUrl})...`
+      `[Worker Supervisor] Launching Python worker consumer for lane [${lane}] (${maskedUrl})...`
     );
 
     const child = spawn("python3", args, {
@@ -77,36 +82,37 @@ export class WorkerSupervisor {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
-    this.child = child;
+    this.children.set(lane, child);
 
     child.stdout?.on("data", (chunk: Buffer) => {
       const msg = chunk.toString().trim();
       if (msg) {
-        console.log(`[Worker] ${this.maskUrl(msg)}`);
+        console.log(`[Worker:${lane}] ${this.maskUrl(msg)}`);
       }
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
       const msg = chunk.toString().trim();
       if (msg) {
-        console.warn(`[Worker] ${this.maskUrl(msg)}`);
+        console.warn(`[Worker:${lane}] ${this.maskUrl(msg)}`);
       }
     });
 
     child.on("close", (code, signal) => {
-      this.child = null;
+      this.children.delete(lane);
       if (!this.isShuttingDown) {
         console.warn(
-          `[Worker Supervisor] Worker exited (code: ${code}, signal: ${signal}). Auto-restarting in 2s...`
+          `[Worker Supervisor] Worker for lane [${lane}] exited (code: ${code}, signal: ${signal}). Auto-restarting in 2s...`
         );
-        this.restartTimer = setTimeout(() => {
-          this.spawnWorker();
+        const timer = setTimeout(() => {
+          this.spawnWorkerForLane(lane);
         }, 2000);
+        this.restartTimers.set(lane, timer);
       }
     });
 
     child.on("error", (err) => {
-      console.warn(`[Worker Supervisor] Failed to spawn worker:`, err);
+      console.warn(`[Worker Supervisor] Failed to spawn worker for lane [${lane}]:`, err);
     });
   }
 
@@ -114,26 +120,37 @@ export class WorkerSupervisor {
     this.isShuttingDown = true;
     this.isStarted = false;
 
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
+    for (const timer of this.restartTimers.values()) {
+      clearTimeout(timer);
     }
+    this.restartTimers.clear();
 
-    if (this.child) {
+    for (const child of this.children.values()) {
       try {
-        this.child.kill("SIGTERM");
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+        }, 3000).unref();
       } catch {
         // ignore
       }
-      this.child = null;
     }
+    this.children.clear();
   }
 
   public isRunning(): boolean {
-    return this.child !== null && !this.child.killed;
+    for (const child of this.children.values()) {
+      if (!child.killed) return true;
+    }
+    return false;
   }
 
   public getChild(): ChildProcess | null {
-    return this.child;
+    for (const child of this.children.values()) {
+      return child;
+    }
+    return null;
   }
 }
