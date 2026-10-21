@@ -71,6 +71,26 @@ export default function ControlsSidebar({
   const outputHeight = gridHeight * params.tileSize;
   const totalStuds = params.width * gridHeight;
 
+  // Recommended web bitrate for video (respects source bitrate and prevents 16+ Mbps spikes)
+  const sourceBitrateMbps =
+    isVideo && media?.sizeBytes && media?.durationSec && media.durationSec > 0
+      ? (media.sizeBytes * 8) / (media.durationSec * 1_000_000)
+      : undefined;
+
+  const autoBitrateRecommendedMbps = sourceBitrateMbps
+    ? Math.min(Math.max(Number((sourceBitrateMbps * 1.15).toFixed(1)), 1.5), 4.0)
+    : 3.0;
+
+  const isUpscaled = isVideo && outputWidth > sourceWidth * 1.15;
+  const fittedTileSize = (() => {
+    const candidates = [...TILE_SIZES].sort((a, b) => {
+      const diffA = Math.abs(params.width * a - sourceWidth);
+      const diffB = Math.abs(params.width * b - sourceWidth);
+      return diffA - diffB;
+    });
+    return candidates[0] || 8;
+  })();
+
   const updateParam = <K extends keyof LegoParams>(
     key: K,
     value: LegoParams[K],
@@ -384,7 +404,7 @@ export default function ControlsSidebar({
       )}
 
       {media?.type === "video" && (
-        <div className="space-y-2.5 pt-1   border-zinc-800/60">
+        <div className="space-y-2.5 pt-1 border-zinc-800/60">
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-zinc-300">
               Video Bitrate
@@ -394,25 +414,26 @@ export default function ControlsSidebar({
                 type="button"
                 onClick={() => updateParam("autoBitrate", true)}
                 className={[
-                  "px-2 py-0.5 rounded transition-all",
+                  "px-2 py-0.5 rounded transition-all cursor-pointer",
                   params.autoBitrate
                     ? "bg-zinc-700 text-white font-medium"
-                    : "text-zinc-400",
+                    : "text-zinc-400 hover:text-zinc-200",
                 ].join(" ")}
               >
-                Auto (50MB Cap)
+                Auto (~{autoBitrateRecommendedMbps} Mbps)
               </button>
               <button
                 type="button"
                 onClick={() => {
                   updateParam("autoBitrate", false);
-                  if (!params.bitrateMbps) updateParam("bitrateMbps", 4.0);
+                  if (!params.bitrateMbps)
+                    updateParam("bitrateMbps", autoBitrateRecommendedMbps);
                 }}
                 className={[
-                  "px-2 py-0.5 rounded transition-all",
+                  "px-2 py-0.5 rounded transition-all cursor-pointer",
                   !params.autoBitrate
                     ? "bg-zinc-700 text-white font-medium"
-                    : "text-zinc-400",
+                    : "text-zinc-400 hover:text-zinc-200",
                 ].join(" ")}
               >
                 Custom
@@ -424,14 +445,19 @@ export default function ControlsSidebar({
             <div className="space-y-1.5 pt-1">
               <div className="flex justify-between text-xs text-zinc-400 font-mono">
                 <span>Target Bitrate</span>
-                <span>{(params.bitrateMbps ?? 4.0).toFixed(1)} Mbps</span>
+                <span>
+                  {(params.bitrateMbps ?? autoBitrateRecommendedMbps).toFixed(
+                    1,
+                  )}{" "}
+                  Mbps
+                </span>
               </div>
               <input
                 type="range"
                 min={0.5}
-                max={20.0}
+                max={12.0}
                 step={0.5}
-                value={params.bitrateMbps ?? 4.0}
+                value={params.bitrateMbps ?? autoBitrateRecommendedMbps}
                 onChange={(e) =>
                   updateParam("bitrateMbps", Number(e.target.value))
                 }
@@ -446,10 +472,28 @@ export default function ControlsSidebar({
         <div className="rounded-xl bg-zinc-950/80 border border-zinc-800/90 p-3.5 space-y-2 text-xs">
           <div className="flex justify-between text-zinc-400">
             <span>Resolution</span>
-            <span className="font-mono text-zinc-200">
-              {outputWidth} × {outputHeight} px
-            </span>
+            <div className="text-right">
+              <span className="font-mono text-zinc-200">
+                {outputWidth} × {outputHeight} px
+              </span>
+            </div>
           </div>
+          {isVideo && isUpscaled && (
+            <div className="flex items-center justify-between gap-1.5 p-2 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-300">
+              <span className="truncate">
+                Upscaled {Math.round((outputWidth / sourceWidth) * 100)}% ({sourceWidth}×{sourceHeight})
+              </span>
+              {fittedTileSize !== params.tileSize && (
+                <button
+                  type="button"
+                  onClick={() => updateParam("tileSize", fittedTileSize)}
+                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 transition-all font-medium whitespace-nowrap cursor-pointer text-[10px]"
+                >
+                  Fit to {params.width * fittedTileSize}px
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex justify-between text-zinc-400">
             <span>Grid Studs</span>
             <span className="font-mono text-zinc-200">
