@@ -24,6 +24,8 @@ export interface QueueService {
 export class LocalQueueService implements QueueService {
   private jobs = new Map<string, JobState>();
   private activeProcesses = new Map<string, ChildProcess>();
+  private pendingQueue: JobEnvelope[] = [];
+  private maxConcurrency = 2;
   private emitter = new EventEmitter();
   private storage: StorageService;
   private pythonWorkerScript: string;
@@ -84,7 +86,7 @@ export class LocalQueueService implements QueueService {
       this.quotaService &&
       !current.refunded &&
       current.deviceId &&
-      ["failed", "rejected", "cancelled"].includes(updated.status)
+      ["failed", "rejected", "cancelled", "expired"].includes(updated.status)
     ) {
       updated.refunded = true;
       const mediaKind = current.mediaKind === "video" ? "video" : "image";
@@ -112,6 +114,11 @@ export class LocalQueueService implements QueueService {
     if (child) {
       try {
         child.kill("SIGTERM");
+        setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+        }, 3000).unref();
       } catch {
         // process might have already exited
       }
@@ -123,6 +130,13 @@ export class LocalQueueService implements QueueService {
       errorCode: "CANCELLED",
       errorMessage: "Job was cancelled by client.",
     });
+
+    const next = this.pendingQueue.shift();
+    if (next) {
+      setImmediate(() => {
+        this.executeJob(next);
+      });
+    }
   }
 
   subscribeJobEvents(
@@ -164,9 +178,27 @@ export class LocalQueueService implements QueueService {
       }
     }
 
-    setImmediate(() => {
-      this.executeJob(envelope);
-    });
+    if (this.activeProcesses.size >= this.maxConcurrency) {
+      this.pendingQueue.push(envelope);
+    } else {
+      setImmediate(() => {
+        this.executeJob(envelope);
+      });
+    }
+  }
+
+  private drainPending(): void {
+    if (
+      this.activeProcesses.size < this.maxConcurrency &&
+      this.pendingQueue.length > 0
+    ) {
+      const next = this.pendingQueue.shift();
+      if (next) {
+        setImmediate(() => {
+          this.executeJob(next);
+        });
+      }
+    }
   }
 
   private async executeJob(envelope: JobEnvelope): Promise<void> {
@@ -185,6 +217,7 @@ export class LocalQueueService implements QueueService {
             errorCode: "INPUT_MISSING",
             errorMessage: `Failed to retrieve input file from storage: ${err instanceof Error ? err.message : String(err)}`,
           });
+          this.drainPending();
           return;
         }
       }
@@ -207,6 +240,40 @@ export class LocalQueueService implements QueueService {
       );
 
       this.activeProcesses.set(jobId, child);
+
+      const timeoutSec =
+        envelope.limits?.timeoutSec ||
+        (envelope.mediaKind === "video" ? 180 : 30);
+      const timeoutMs = timeoutSec * 1000;
+      let timedOut = false;
+
+      const timeoutTimer = setTimeout(async () => {
+        timedOut = true;
+        if (this.activeProcesses.has(jobId)) {
+          console.warn(
+            `[LocalQueue] Job ${jobId} timed out after ${timeoutSec}s. Terminating worker.`,
+          );
+          const proc = this.activeProcesses.get(jobId);
+          try {
+            proc?.kill("SIGTERM");
+            setTimeout(() => {
+              try {
+                proc?.kill("SIGKILL");
+              } catch {}
+            }, 3000).unref();
+          } catch {}
+
+          this.activeProcesses.delete(jobId);
+
+          await this.updateJobState(jobId, {
+            status: "failed",
+            errorCode: "TIMEOUT",
+            errorMessage: `Job execution exceeded hard timeout limit of ${timeoutSec}s.`,
+          });
+
+          this.drainPending();
+        }
+      }, timeoutMs);
 
       const rl = readline.createInterface({
         input: child.stdout,
@@ -286,9 +353,13 @@ export class LocalQueueService implements QueueService {
       });
 
       child.on("close", async (code) => {
+        clearTimeout(timeoutTimer);
         this.activeProcesses.delete(jobId);
-        const currentState = this.jobs.get(jobId);
+        this.drainPending();
 
+        if (timedOut) return;
+
+        const currentState = this.jobs.get(jobId);
         if (
           currentState &&
           ["done", "failed", "rejected", "cancelled", "expired"].includes(
@@ -308,7 +379,12 @@ export class LocalQueueService implements QueueService {
       });
 
       child.on("error", async (err) => {
+        clearTimeout(timeoutTimer);
         this.activeProcesses.delete(jobId);
+        this.drainPending();
+
+        if (timedOut) return;
+
         await this.updateJobState(jobId, {
           status: "failed",
           errorCode: "INTERNAL",
@@ -317,6 +393,7 @@ export class LocalQueueService implements QueueService {
       });
     } catch (err) {
       this.activeProcesses.delete(jobId);
+      this.drainPending();
       await this.updateJobState(jobId, {
         status: "failed",
         errorCode: "INTERNAL",
@@ -565,7 +642,7 @@ export class RedisQueueService implements QueueService {
         this.quotaService &&
         !current.refunded &&
         current.deviceId &&
-        ["failed", "rejected", "cancelled"].includes(current.status)
+        ["failed", "rejected", "cancelled", "expired"].includes(current.status)
       ) {
         await this.redis.hset(hashKey, { refunded: "1" });
         current.refunded = true;
