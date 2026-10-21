@@ -113,8 +113,9 @@ export function createApp(options?: AppOptions): Express {
     queue = options.queueService;
   } else {
     const useRedis =
-      Boolean(options?.redisUrl) ||
-      (process.env.QUEUE_DRIVER === "redis" && Boolean(process.env.REDIS_URL));
+      options?.redisUrl !== undefined
+        ? Boolean(options.redisUrl)
+        : (process.env.QUEUE_DRIVER === "redis" && Boolean(process.env.REDIS_URL));
     if (useRedis) {
       const redisUrl =
         options?.redisUrl || process.env.REDIS_URL || "redis://localhost:6379";
