@@ -193,19 +193,25 @@ function App() {
             "X-Device-Id": deviceId,
           },
           body: JSON.stringify({
-            style: "lego",
+            style: currentParams.style || "lego",
             input: {
               storageKey: `uploads/${assetId}/input`,
               assetId,
             },
             params: {
-              style: "lego",
+              style: currentParams.style || "lego",
               width: currentParams.width,
               tileSize: currentParams.tileSize,
               palette: currentParams.palette,
               quality: currentParams.quality,
               fps: currentParams.fps,
               bitrateMbps: resolvedBitrate,
+              ...(currentParams.style === "ascii"
+                ? {
+                    ramp: currentParams.ramp || "default",
+                    strength: currentParams.strength ?? 0.5,
+                  }
+                : {}),
             },
           }),
         });
@@ -291,13 +297,15 @@ function App() {
   }, [params, uploadedAsset, media, isQuotaExhausted, dispatchJob]);
 
   return (
-    <div className="min-h-screen min-h-dvh bg-zinc-950 text-zinc-100 flex flex-col justify-between selection:bg-white selection:text-black">
-      <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between">
+    <div className="min-h-dvh lg:h-dvh lg:overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col selection:bg-white selection:text-black">
+      <header className="shrink-0 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <a href="/">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black tracking-wider uppercase m-0 p-0 flex">
-                <span className="text-red-500 drop-shadow-[0_2px_0_#000]">F</span>
+                <span className="text-red-500 drop-shadow-[0_2px_0_#000]">
+                  F
+                </span>
                 <span className="text-yellow-400 drop-shadow-[0_2px_0_#000]">
                   o
                 </span>
@@ -307,7 +315,9 @@ function App() {
                 <span className="text-green-500 drop-shadow-[0_2px_0_#000]">
                   m
                 </span>
-                <span className="text-red-500 drop-shadow-[0_2px_0_#000]">a</span>
+                <span className="text-red-500 drop-shadow-[0_2px_0_#000]">
+                  a
+                </span>
               </h1>
             </div>
           </a>
@@ -315,7 +325,7 @@ function App() {
 
         {quota && (
           <div
-            className="flex-col items-center gap-2 sm:gap-3 text-xs px-2.5 sm:px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-800 text-zinc-300 opacity-60"
+            className="flex-col items-center gap-2 sm:gap-3 text-xs px-2.5 sm:px-3 py-0 rounded-full bg-zinc-900/90 border border-zinc-800 text-zinc-300 opacity-60"
             title={`Quota resets in ${Math.max(1, Math.ceil(quota.resetsInSeconds / 60))} minutes`}
           >
             <span className="flex items-center gap-1.5 font-mono">
@@ -329,7 +339,8 @@ function App() {
                     : "text-emerald-400 font-medium"
                 }
               >
-                {quota.images.remaining + quota.videos.remaining}/{quota.images.limit + quota.videos.limit}
+                {quota.images.remaining + quota.videos.remaining}/
+                {quota.images.limit + quota.videos.limit}
               </span>
             </span>
             <span className="text-zinc-500 text-[11px] hidden sm:inline font-mono">
@@ -339,10 +350,9 @@ function App() {
         )}
       </header>
 
-
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 flex flex-col justify-start lg:justify-center">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 lg:gap-8 items-start">
-          <section className="lg:col-span-7 xl:col-span-8 flex flex-col items-center justify-center min-h-[300px] sm:min-h-[460px]">
+      <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 lg:gap-8 lg:h-full lg:min-h-0 lg:items-stretch">
+          <section className="lg:col-span-7 xl:col-span-8 flex flex-col items-center justify-center min-h-[300px] sm:min-h-[460px] lg:min-h-0 lg:h-full">
             {!media ? (
               <div className="w-full max-w-xl">
                 <MediaDropzone onMediaSelect={handleMediaSelect} />
@@ -362,7 +372,7 @@ function App() {
             )}
           </section>
 
-          <section className="lg:col-span-5 xl:col-span-4">
+          <section className="lg:col-span-5 xl:col-span-4 lg:min-h-0 lg:h-full">
             <ControlsSidebar
               media={media}
               params={params}
@@ -379,7 +389,7 @@ function App() {
         </div>
       </main>
 
-      <footer className="border-t border-zinc-900 px-4 sm:px-6 py-4 text-center text-xs text-zinc-600 font-mono">
+      <footer className="shrink-0 border-t border-zinc-900 px-4 sm:px-6 py-3 text-center text-xs text-zinc-600 font-mono">
         <p className="text-sm text-zinc-500">
           This <span className="inline-block">💩</span> made by{" "}
           <a
