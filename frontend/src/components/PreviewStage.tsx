@@ -381,7 +381,7 @@ export default function PreviewStage({
         <div className="mt-2.5 w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 shadow-lg animate-in fade-in slide-in-from-top-1 duration-300">
           <span className="text-amber-400 text-sm shrink-0">🐢</span>
           <p className="font-sans leading-relaxed text-[11px] sm:text-xs">
-            My poor ahh got cheapest vps so please bear with me until
+            My poor ahh got cheapest vps so please bear with, or you can give me free vps :)
           </p>
         </div>
       )}
