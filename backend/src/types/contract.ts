@@ -36,9 +36,55 @@ export interface LegoParams {
   style: "lego";
   width: number;
   tileSize?: number;
-  palette: "classic" | "extended";
+  palette:
+    | "classic"
+    | "extended"
+    | "monochrome"
+    | "pastel"
+    | "crayon"
+    | "earth"
+    | "cool"
+    | "warm";
   quality?: "standard" | "high" | "maximum";
   fps?: "original" | "24" | "30" | "60";
+  bitrateMbps?: number;
+}
+
+export interface AsciiParams {
+  style: "ascii";
+  width: number;
+  tileSize?: number;
+  cellSize?: number;
+  palette:
+    | "mild"
+    | "vibrant"
+    | "dark"
+    | "matrix"
+    | "amber"
+    | "cyberpunk"
+    | "monochrome"
+    | "retro"
+    | "pastel"
+    | "nord"
+    | "gameboy"
+    | "classic"
+    | "extended"
+    | "crayon"
+    | "earth"
+    | "cool"
+    | "warm";
+  ramp?: string;
+  quality?: "standard" | "high" | "maximum";
+  fps?: "original" | "24" | "30" | "60";
+  strength?: number;
+  contrast?: number;
+  saturation?: number;
+  gamma?: number;
+  skipWhite?: number;
+  autoLevels?: boolean;
+  invert?: boolean;
+  smooth?: number;
+  writeTxt?: boolean;
   bitrateMbps?: number;
 }
 
