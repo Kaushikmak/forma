@@ -45,7 +45,8 @@ export default function DownloadModal({
     try {
       if (isVideo || isGif || (scale === 1 && format === "png")) {
         const ext = isVideo ? "mp4" : isGif ? "gif" : "png";
-        const filename = `forma-lego-${params.width}studs-${params.palette}.${ext}`;
+        const unit = params.style === "ascii" ? "cells" : "studs";
+        const filename = `forma-${params.style || "lego"}-${params.width}${unit}-${params.palette}.${ext}`;
 
         const res = await fetch(resultUrl);
         const blob = await res.blob();
@@ -130,12 +131,16 @@ export default function DownloadModal({
 
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5 space-y-1.5 text-xs font-mono">
           <div className="flex justify-between text-zinc-400">
+            <span>Style:</span>
+            <span className="text-zinc-200">{params.style === "ascii" ? "ASCII Art" : "LEGO Mosaic"}</span>
+          </div>
+          <div className="flex justify-between text-zinc-400">
             <span>Grid Width:</span>
-            <span className="text-zinc-200">{params.width} studs</span>
+            <span className="text-zinc-200">{params.width} {params.style === "ascii" ? "chars" : "studs"}</span>
           </div>
           <div className="flex justify-between text-zinc-400">
             <span>Grid Height:</span>
-            <span className="text-zinc-200">{gridHeight} studs</span>
+            <span className="text-zinc-200">{gridHeight} {params.style === "ascii" ? "chars" : "studs"}</span>
           </div>
           <div className="flex justify-between text-zinc-400">
             <span>Palette:</span>
