@@ -289,62 +289,79 @@ def process_worker_job(
 
     if job_envelope.get("style") == "ascii":
         ascii_worker_path = Path(__file__).resolve().parent.parent / "ascii_core" / "worker.py"
-        if ascii_worker_path.exists():
-            import subprocess
-            cmd = [
-                sys.executable,
-                str(ascii_worker_path),
-                "--job",
-                json.dumps(job_envelope),
-                "--storage-root",
-                str(storage_root),
-            ]
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env={**os.environ, "PYTHONPATH": str(ascii_worker_path.parent)},
-            )
-            terminal_event = None
-            for line in iter(proc.stdout.readline, ""):
-                line = line.strip()
-                if not line:
-                    continue
-                if cancel_check and cancel_check():
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
-                    err_ev = {
-                        "jobId": job_id,
-                        "status": "cancelled",
-                        "errorCode": "CANCELLED",
-                        "errorMessage": "Job was cancelled.",
-                    }
-                    on_event(err_ev)
-                    return err_ev
+        if not ascii_worker_path.exists():
+            # Check container fallback paths (/app/ascii_core/worker.py or cwd)
+            for fallback in [Path("/app/ascii_core/worker.py"), Path("ascii_core/worker.py")]:
+                if fallback.exists():
+                    ascii_worker_path = fallback.resolve()
+                    break
+
+        if not ascii_worker_path.exists():
+            err_res = {
+                "jobId": job_id,
+                "status": "failed",
+                "errorCode": "INTERNAL",
+                "errorMessage": f"ASCII worker script not found at {ascii_worker_path}",
+                "refundable": 1,
+            }
+            on_event(err_res)
+            return err_res
+
+        import subprocess
+        cmd = [
+            sys.executable,
+            str(ascii_worker_path),
+            "--job",
+            json.dumps(job_envelope),
+            "--storage-root",
+            str(storage_root),
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(ascii_worker_path.parent)},
+        )
+        terminal_event = None
+        for line in iter(proc.stdout.readline, ""):
+            line = line.strip()
+            if not line:
+                continue
+            if cancel_check and cancel_check():
                 try:
-                    ev = json.loads(line)
-                    if isinstance(ev, dict) and "status" in ev:
-                        on_event(ev)
-                        if ev["status"] in ("done", "failed", "rejected", "cancelled", "expired"):
-                            terminal_event = ev
+                    proc.terminate()
                 except Exception:
                     pass
-            proc.wait()
-            if terminal_event:
-                return terminal_event
-            if proc.returncode != 0:
-                err_msg = proc.stderr.read()
                 err_ev = {
                     "jobId": job_id,
-                    "status": "failed",
-                    "errorCode": "INTERNAL",
-                    "errorMessage": f"ASCII worker exited with code {proc.returncode}: {err_msg[:200]}",
+                    "status": "cancelled",
+                    "errorCode": "CANCELLED",
+                    "errorMessage": "Job was cancelled.",
                 }
                 on_event(err_ev)
                 return err_ev
+            try:
+                ev = json.loads(line)
+                if isinstance(ev, dict) and "status" in ev:
+                    on_event(ev)
+                    if ev["status"] in ("done", "failed", "rejected", "cancelled", "expired"):
+                        terminal_event = ev
+            except Exception:
+                pass
+        proc.wait()
+        if terminal_event:
+            return terminal_event
+        if proc.returncode != 0:
+            err_msg = proc.stderr.read()
+            err_ev = {
+                "jobId": job_id,
+                "status": "failed",
+                "errorCode": "INTERNAL",
+                "errorMessage": f"ASCII worker exited with code {proc.returncode}: {err_msg[:200]}",
+            }
+            on_event(err_ev)
+            return err_ev
 
     input_spec = job_envelope["input"]
     input_key = input_spec.get("key", "")

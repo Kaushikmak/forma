@@ -32,24 +32,8 @@ const LegoParamsSchema = z.object({
 const AsciiParamsSchema = z.object({
   style: z.literal("ascii").default("ascii"),
   width: z.number().int().min(16).max(256).default(64),
-  tileSize: z
-    .union([
-      z.literal(8),
-      z.literal(12),
-      z.literal(16),
-      z.literal(24),
-      z.literal(32),
-    ])
-    .default(16),
-  cellSize: z
-    .union([
-      z.literal(8),
-      z.literal(12),
-      z.literal(16),
-      z.literal(24),
-      z.literal(32),
-    ])
-    .optional(),
+  tileSize: z.number().int().min(6).max(64).default(16),
+  cellSize: z.number().int().min(6).max(64).optional(),
   palette: z
     .enum([
       "mild",

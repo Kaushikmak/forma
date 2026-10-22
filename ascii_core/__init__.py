@@ -5,6 +5,13 @@ Supports images, animated GIFs, and videos with customizable palettes and charac
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_pkg_root = str(Path(__file__).resolve().parent)
+if _pkg_root not in sys.path:
+    sys.path.insert(0, _pkg_root)
+
 from common import (
     calculate_grid_dimensions,
     calculate_output_dimensions,

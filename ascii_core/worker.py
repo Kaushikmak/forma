@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+_pkg_root = str(Path(__file__).resolve().parent)
+if _pkg_root not in sys.path:
+    sys.path.insert(0, _pkg_root)
+
 from PIL import Image
 
 from config import FPS, AsciiConfig, Palette, Quality
@@ -235,9 +239,9 @@ def validate_job_envelope(envelope: dict[str, Any]) -> None:
         )
 
     tile_size = params.get("tileSize", params.get("cellSize", 16))
-    if tile_size not in (8, 12, 16, 24, 32):
+    if not isinstance(tile_size, int) or tile_size < 6 or tile_size > 64:
         raise ValueError(
-            f"INVALID_PARAMS: 'tileSize' must be one of [8, 12, 16, 24, 32], got {tile_size}."
+            f"INVALID_PARAMS: 'tileSize' must be an integer between 6 and 64, got {tile_size}."
         )
 
     quality = params.get("quality", "high")
