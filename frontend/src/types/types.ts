@@ -12,16 +12,40 @@ export type JobStatus =
   | "cancelled"
   | "error";
 
-export type LegoPalette = "classic" | "extended";
+export type LegoPalette =
+  | "classic"
+  | "extended"
+  | "monochrome"
+  | "pastel"
+  | "crayon"
+  | "earth"
+  | "cool"
+  | "warm";
+
+export type AsciiPalette =
+  | "mild"
+  | "vibrant"
+  | "dark"
+  | "matrix"
+  | "amber"
+  | "cyberpunk"
+  | "monochrome"
+  | "retro"
+  | "pastel"
+  | "nord"
+  | "gameboy";
+
 export type LegoQuality = "standard" | "high" | "maximum";
 export type LegoFps = "original" | "24" | "30" | "60";
-export type StyleId = "lego";
+export type StyleId = "lego" | "ascii";
 
 export interface LegoParams {
   style: StyleId;
-  width: number; // 16 to 256 studs
-  tileSize: number; // 8 to 32 pixels per tile
-  palette: LegoPalette;
+  width: number;
+  tileSize: number;
+  palette: LegoPalette | AsciiPalette;
+  ramp?: string;
+  strength?: number;
   quality: LegoQuality;
   fps: LegoFps;
   autoBitrate: boolean;
