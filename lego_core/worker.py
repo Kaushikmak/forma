@@ -204,12 +204,18 @@ def validate_job_envelope(envelope: dict[str, Any]) -> None:
         if field not in envelope:
             raise ValueError(f"INVALID_PARAMS: Missing required field '{field}'.")
 
-    if envelope["style"] != "lego":
+    if envelope["style"] not in ("lego", "ascii"):
         raise ValueError(f"UNKNOWN_STYLE: Style '{envelope['style']}' is not supported.")
 
     params = envelope["params"]
     if not isinstance(params, dict):
         raise ValueError("INVALID_PARAMS: 'params' must be an object.")
+
+    if envelope["style"] == "ascii":
+        width = params.get("width", 64)
+        if not isinstance(width, int) or width < 16 or width > 256:
+            raise ValueError("INVALID_PARAMS: 'width' must be an integer between 16 and 256.")
+        return
 
     # Validate Lego params
     width = params.get("width", 64)
@@ -217,7 +223,8 @@ def validate_job_envelope(envelope: dict[str, Any]) -> None:
         raise ValueError("INVALID_PARAMS: 'width' must be an integer between 16 and 256.")
 
     palette = params.get("palette", "classic")
-    if palette not in ("classic", "extended"):
+    valid_palettes = tuple(p.value for p in Palette)
+    if palette not in valid_palettes:
         raise ValueError(f"INVALID_PARAMS: Unsupported palette '{palette}'.")
 
     tile_size = params.get("tileSize", 16)
@@ -279,6 +286,65 @@ def process_worker_job(
         }
         on_event(err_res)
         return err_res
+
+    if job_envelope.get("style") == "ascii":
+        ascii_worker_path = Path(__file__).resolve().parent.parent / "ascii_core" / "worker.py"
+        if ascii_worker_path.exists():
+            import subprocess
+            cmd = [
+                sys.executable,
+                str(ascii_worker_path),
+                "--job",
+                json.dumps(job_envelope),
+                "--storage-root",
+                str(storage_root),
+            ]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "PYTHONPATH": str(ascii_worker_path.parent)},
+            )
+            terminal_event = None
+            for line in iter(proc.stdout.readline, ""):
+                line = line.strip()
+                if not line:
+                    continue
+                if cancel_check and cancel_check():
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    err_ev = {
+                        "jobId": job_id,
+                        "status": "cancelled",
+                        "errorCode": "CANCELLED",
+                        "errorMessage": "Job was cancelled.",
+                    }
+                    on_event(err_ev)
+                    return err_ev
+                try:
+                    ev = json.loads(line)
+                    if isinstance(ev, dict) and "status" in ev:
+                        on_event(ev)
+                        if ev["status"] in ("done", "failed", "rejected", "cancelled", "expired"):
+                            terminal_event = ev
+                except Exception:
+                    pass
+            proc.wait()
+            if terminal_event:
+                return terminal_event
+            if proc.returncode != 0:
+                err_msg = proc.stderr.read()
+                err_ev = {
+                    "jobId": job_id,
+                    "status": "failed",
+                    "errorCode": "INTERNAL",
+                    "errorMessage": f"ASCII worker exited with code {proc.returncode}: {err_msg[:200]}",
+                }
+                on_event(err_ev)
+                return err_ev
 
     input_spec = job_envelope["input"]
     input_key = input_spec.get("key", "")
