@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
-import type { QuotaData } from "../hooks/useQuota";
 
 interface QuotaToastProps {
   isOpen: boolean;
   onClose: () => void;
-  quota?: QuotaData | null;
   clickCount: number;
   mediaType?: "image" | "video";
-  onRefill?: () => void;
 }
 
 const WEIRD_MESSAGES: string[] = [
@@ -22,9 +19,7 @@ const WEIRD_MESSAGES: string[] = [
 export default function QuotaToast({
   isOpen,
   onClose,
-  quota,
   clickCount,
-  onRefill,
 }: QuotaToastProps) {
   const [visible, setVisible] = useState(false);
 
