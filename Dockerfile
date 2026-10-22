@@ -28,6 +28,7 @@ COPY lego_core/requirements.txt /app/lego_core/requirements.txt
 RUN pip install --no-cache-dir -r /app/lego_core/requirements.txt
 
 COPY lego_core/ /app/lego_core/
+COPY ascii_core/ /app/ascii_core/
 
 
 WORKDIR /app/backend
