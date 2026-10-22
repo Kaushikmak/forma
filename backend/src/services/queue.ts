@@ -222,10 +222,21 @@ export class LocalQueueService implements QueueService {
         }
       }
 
+      let scriptToRun = this.pythonWorkerScript;
+      if (envelope.style === "ascii") {
+        const asciiScript = path.resolve(
+          path.dirname(this.pythonWorkerScript),
+          "../ascii_core/worker.py",
+        );
+        if (fs.existsSync(asciiScript)) {
+          scriptToRun = asciiScript;
+        }
+      }
+
       const child = spawn(
         "python3",
         [
-          this.pythonWorkerScript,
+          scriptToRun,
           "--job",
           JSON.stringify(envelope),
           "--storage-root",
@@ -234,7 +245,7 @@ export class LocalQueueService implements QueueService {
         {
           env: {
             ...process.env,
-            PYTHONPATH: path.dirname(this.pythonWorkerScript),
+            PYTHONPATH: path.dirname(scriptToRun),
           },
         },
       );
