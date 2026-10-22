@@ -9,6 +9,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webp": "image/webp",
   ".gif": "image/gif",
   ".mp4": "video/mp4",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 export function createOutputController(storage: StorageService) {
