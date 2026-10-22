@@ -12,11 +12,81 @@ const LegoParamsSchema = z.object({
   style: z.literal("lego").default("lego"),
   width: z.number().int().min(16).max(256).default(64),
   tileSize: z.union([z.literal(8), z.literal(12), z.literal(16), z.literal(24), z.literal(32)]).default(16),
-  palette: z.enum(["classic", "extended"]).default("classic"),
+  palette: z
+    .enum([
+      "classic",
+      "extended",
+      "monochrome",
+      "pastel",
+      "crayon",
+      "earth",
+      "cool",
+      "warm",
+    ])
+    .default("classic"),
   quality: z.enum(["standard", "high", "maximum"]).default("high"),
   fps: z.enum(["original", "24", "30", "60"]).default("original"),
   bitrateMbps: z.number().min(0.5).max(20.0).optional(),
 });
+
+const AsciiParamsSchema = z.object({
+  style: z.literal("ascii").default("ascii"),
+  width: z.number().int().min(16).max(256).default(64),
+  tileSize: z
+    .union([
+      z.literal(8),
+      z.literal(12),
+      z.literal(16),
+      z.literal(24),
+      z.literal(32),
+    ])
+    .default(16),
+  cellSize: z
+    .union([
+      z.literal(8),
+      z.literal(12),
+      z.literal(16),
+      z.literal(24),
+      z.literal(32),
+    ])
+    .optional(),
+  palette: z
+    .enum([
+      "mild",
+      "vibrant",
+      "dark",
+      "matrix",
+      "amber",
+      "cyberpunk",
+      "monochrome",
+      "retro",
+      "pastel",
+      "nord",
+      "gameboy",
+      "classic",
+      "extended",
+      "crayon",
+      "earth",
+      "cool",
+      "warm",
+    ])
+    .default("mild"),
+  ramp: z.string().default("default"),
+  quality: z.enum(["standard", "high", "maximum"]).default("high"),
+  fps: z.enum(["original", "24", "30", "60"]).default("original"),
+  strength: z.number().min(0.0).max(1.0).optional(),
+  contrast: z.number().optional(),
+  saturation: z.number().optional(),
+  gamma: z.number().optional(),
+  skipWhite: z.number().int().optional(),
+  autoLevels: z.boolean().optional(),
+  invert: z.boolean().optional(),
+  smooth: z.number().optional(),
+  writeTxt: z.boolean().optional(),
+  bitrateMbps: z.number().min(0.5).max(20.0).optional(),
+});
+
+const JobParamsSchema = z.union([LegoParamsSchema, AsciiParamsSchema]);
 
 const CreateJobSchema = z.object({
   style: z.string().optional(),
@@ -27,7 +97,7 @@ const CreateJobSchema = z.object({
       assetId: z.string().optional(),
     })
     .optional(),
-  params: LegoParamsSchema.default({
+  params: JobParamsSchema.default({
     style: "lego",
     width: 64,
     tileSize: 16,
@@ -150,7 +220,7 @@ export function createJobsController(
       const envelope: JobEnvelope = {
         v: 1,
         jobId,
-        style: "lego",
+        style: (params.style as string) || "lego",
         params,
         deviceId,
         input: {
