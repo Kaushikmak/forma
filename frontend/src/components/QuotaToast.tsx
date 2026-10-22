@@ -69,7 +69,7 @@ export default function QuotaToast({
     const autoCloseTimer = setTimeout(() => {
       setVisible(false);
       setTimeout(onClose, 300);
-    }, 8000);
+    }, 5000);
 
     return () => {
       clearTimeout(enterTimer);
@@ -81,15 +81,6 @@ export default function QuotaToast({
     return null;
   }
 
-  // Format countdown string: MM:SS
-  const formatCountdown = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    if (mins > 0) {
-      return `${mins}m ${secs.toString().padStart(2, "0")}s`;
-    }
-    return `${secs}s`;
-  };
 
   const messageIndex = Math.min(
     Math.max(0, clickCount - 1),
@@ -114,26 +105,10 @@ export default function QuotaToast({
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-lg">
-          ⏳
-        </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="text-sm font-semibold text-zinc-100">
-              Refill Countdown
-            </h4>
-            <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-mono font-medium text-amber-400 border border-amber-500/20">
-              {formatCountdown(remainingSec)}
-            </span>
-          </div>
           <p className="mt-1 text-xs sm:text-sm leading-relaxed text-zinc-400">
             {message}
           </p>
-          {clickCount > 1 && (
-            <p className="mt-2 text-[11px] font-mono text-zinc-500">
-              Attempt {Math.min(clickCount, 10)} / 10
-            </p>
-          )}
         </div>
       </div>
     </aside>
