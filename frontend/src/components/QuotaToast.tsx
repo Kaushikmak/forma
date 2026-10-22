@@ -27,31 +27,6 @@ export default function QuotaToast({
   onRefill,
 }: QuotaToastProps) {
   const [visible, setVisible] = useState(false);
-  const [remainingSec, setRemainingSec] = useState<number>(0);
-
-  // Live countdown timer inside effect (pure render)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const baseResetAt = quota?.resetAt
-      ? quota.resetAt
-      : quota?.resetsInSeconds
-      ? Date.now() + quota.resetsInSeconds * 1000
-      : Date.now() + 1800000;
-
-    const updateTimer = () => {
-      const now = Date.now();
-      const diff = Math.max(0, Math.ceil((baseResetAt - now) / 1000));
-      setRemainingSec(diff);
-      if (diff <= 0 && onRefill) {
-        onRefill();
-      }
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [isOpen, quota, onRefill]);
 
   // Smooth entrance and auto-close
   useEffect(() => {
@@ -81,10 +56,9 @@ export default function QuotaToast({
     return null;
   }
 
-
   const messageIndex = Math.min(
     Math.max(0, clickCount - 1),
-    WEIRD_MESSAGES.length - 1
+    WEIRD_MESSAGES.length - 1,
   );
   const message = WEIRD_MESSAGES[messageIndex];
 
@@ -101,7 +75,9 @@ export default function QuotaToast({
         "p-4 sm:p-5",
         "shadow-2xl shadow-black/80",
         "transition-all duration-300 ease-out",
-        visible ? "translate-y-0 opacity-100 scale-100" : "-translate-y-4 opacity-0 scale-95",
+        visible
+          ? "translate-y-0 opacity-100 scale-100"
+          : "-translate-y-4 opacity-0 scale-95",
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
