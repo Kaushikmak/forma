@@ -7,6 +7,12 @@ from resource_limits import MAX_BUFFER_SIZE, MAX_WORKERS
 class Palette(str, Enum):
     CLASSIC = "classic"
     EXTENDED = "extended"
+    MONOCHROME = "monochrome"
+    PASTEL = "pastel"
+    CRAYON = "crayon"
+    EARTH = "earth"
+    COOL = "cool"
+    WARM = "warm"
 
 
 class Quality(str, Enum):
