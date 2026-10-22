@@ -8,6 +8,7 @@ on:
     paths:
       - "backend/**"
       - "lego_core/**"
+      - "ascii_core/**"
       - "Dockerfile"
       - "requirements.txt"
       - ".github/workflows/**"
