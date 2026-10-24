@@ -277,24 +277,38 @@ function App() {
     : undefined;
   const isQuotaExhausted = remainingQuota !== undefined && remainingQuota <= 0;
 
+  // debounce
   useEffect(() => {
     if (!media || !uploadedAsset || !lastDispatchedParamsRef.current) return;
 
     const paramsKey = JSON.stringify(params);
     if (paramsKey === lastDispatchedParamsRef.current) return;
 
-    if (isQuotaExhausted) return;
+    if (isQuotaExhausted || isLiveRendering) return;
+
+    const debounceDelay = media.type === "video" ? 1200 : 800;
 
     const timer = setTimeout(() => {
-      if (paramsKey === lastDispatchedParamsRef.current || isQuotaExhausted)
+      if (
+        paramsKey === lastDispatchedParamsRef.current ||
+        isQuotaExhausted ||
+        isLiveRendering
+      )
         return;
       lastDispatchedParamsRef.current = paramsKey;
       setLocalJobStatus("queued");
       dispatchJob(uploadedAsset.assetId, params);
-    }, 500);
+    }, debounceDelay);
 
     return () => clearTimeout(timer);
-  }, [params, uploadedAsset, media, isQuotaExhausted, dispatchJob]);
+  }, [
+    params,
+    uploadedAsset,
+    media,
+    isQuotaExhausted,
+    isLiveRendering,
+    dispatchJob,
+  ]);
 
   return (
     <div className="min-h-dvh lg:h-dvh lg:overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col selection:bg-white selection:text-black">
