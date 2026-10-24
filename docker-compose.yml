@@ -1,5 +1,15 @@
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: forma-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   forma-backend:
     build:
       context: .
@@ -7,6 +17,8 @@ services:
     restart: always
     ports:
       - "4000:4000"
+    depends_on:
+      - redis
     env_file:
       - .env
     environment:
@@ -19,3 +31,4 @@ services:
 
 volumes:
   forma_storage:
+  redis_data:
