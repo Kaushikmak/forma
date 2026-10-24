@@ -31,8 +31,17 @@ export interface DatabaseService {
   getJob(jobId: string): Promise<JobState | null>;
   getDeviceQuota(deviceId: string): Promise<DeviceQuotaRecord | null>;
   saveDeviceQuota(quota: DeviceQuotaRecord): Promise<void>;
-  getIpUsage(ipAddress: string, windowStartCutoff: number): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }>;
-  cleanOldRecords?(cutoffMs: number): Promise<{ deletedSlots: number; deletedJobs: number; deletedQuotas?: number }>;
+  getIpUsage(
+    ipAddress: string,
+    windowStartCutoff: number,
+  ): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }>;
+  cleanOldRecords?(
+    cutoffMs: number,
+  ): Promise<{
+    deletedSlots: number;
+    deletedJobs: number;
+    deletedQuotas?: number;
+  }>;
   close(): Promise<void>;
 }
 
@@ -59,11 +68,15 @@ export class PostgresService implements DatabaseService {
         (err.code === "ENETUNREACH" || err.message?.includes("ENETUNREACH")) &&
         this.connectionString.includes("supabase.co")
       ) {
-        console.log("[PostgresService] Direct IPv6 unreachable; switching to Supabase IPv4 Connection Pooler...");
+        console.log(
+          "[PostgresService] Direct IPv6 unreachable; switching to Supabase IPv4 Connection Pooler...",
+        );
         const parsed = new URL(this.connectionString);
         const hostParts = parsed.hostname.split(".");
         const projectRef = hostParts[1] || "pkohbeuqtfbbwbfkxear";
-        const poolerHost = process.env.SUPABASE_POOLER_HOST || "aws-0-ap-northeast-1.pooler.supabase.com";
+        const poolerHost =
+          process.env.SUPABASE_POOLER_HOST ||
+          "aws-0-ap-northeast-1.pooler.supabase.com";
         const poolerUser = `${parsed.username}.${projectRef}`;
         await this.pool.end().catch(() => {});
         this.pool = new Pool({
@@ -158,14 +171,14 @@ export class PostgresService implements DatabaseService {
         slot.durationSec ?? null,
         slot.createdAt,
         slot.expiresAt,
-      ]
+      ],
     );
   }
 
   async getUploadSlot(assetId: string): Promise<UploadSlotRecord | null> {
     const res = await this.pool.query(
       `SELECT * FROM forma_upload_slots WHERE asset_id = $1`,
-      [assetId]
+      [assetId],
     );
     if (res.rows.length === 0) return null;
     const r = res.rows[0];
@@ -180,7 +193,7 @@ export class PostgresService implements DatabaseService {
       expiresAt: Number(r.expires_at),
     };
   }
-
+  // TODO fix timestamp null bug
   async saveJob(job: JobState): Promise<void> {
     await this.pool.query(
       `
@@ -199,30 +212,30 @@ export class PostgresService implements DatabaseService {
         status = EXCLUDED.status,
         progress = EXCLUDED.progress,
         updated_at = EXCLUDED.updated_at,
-        attempts = EXCLUDED.attempts,
-        cancel = EXCLUDED.cancel,
-        media_kind = EXCLUDED.media_kind,
-        input_width = EXCLUDED.input_width,
-        input_height = EXCLUDED.input_height,
-        result_bucket = EXCLUDED.result_bucket,
-        result_key = EXCLUDED.result_key,
-        result_url = EXCLUDED.result_url,
-        content_type = EXCLUDED.content_type,
-        width = EXCLUDED.width,
-        height = EXCLUDED.height,
-        frames = EXCLUDED.frames,
-        duration_sec = EXCLUDED.duration_sec,
-        bytes = EXCLUDED.bytes,
-        processing_ms = EXCLUDED.processing_ms,
-        error_code = EXCLUDED.error_code,
-        error_message = EXCLUDED.error_message;
+        attempts = COALESCE(EXCLUDED.attempts, forma_jobs.attempts),
+        cancel = COALESCE(EXCLUDED.cancel, forma_jobs.cancel),
+        media_kind = COALESCE(EXCLUDED.media_kind, forma_jobs.media_kind),
+        input_width = COALESCE(EXCLUDED.input_width, forma_jobs.input_width),
+        input_height = COALESCE(EXCLUDED.input_height, forma_jobs.input_height),
+        result_bucket = COALESCE(EXCLUDED.result_bucket, forma_jobs.result_bucket),
+        result_key = COALESCE(EXCLUDED.result_key, forma_jobs.result_key),
+        result_url = COALESCE(EXCLUDED.result_url, forma_jobs.result_url),
+        content_type = COALESCE(EXCLUDED.content_type, forma_jobs.content_type),
+        width = COALESCE(EXCLUDED.width, forma_jobs.width),
+        height = COALESCE(EXCLUDED.height, forma_jobs.height),
+        frames = COALESCE(EXCLUDED.frames, forma_jobs.frames),
+        duration_sec = COALESCE(EXCLUDED.duration_sec, forma_jobs.duration_sec),
+        bytes = COALESCE(EXCLUDED.bytes, forma_jobs.bytes),
+        processing_ms = COALESCE(EXCLUDED.processing_ms, forma_jobs.processing_ms),
+        error_code = COALESCE(EXCLUDED.error_code, forma_jobs.error_code),
+        error_message = COALESCE(EXCLUDED.error_message, forma_jobs.error_message);
       `,
       [
         job.jobId,
         job.status,
         job.progress ?? 0,
-        job.updatedAt,
-        job.attempts,
+        job.updatedAt || Date.now(),
+        job.attempts ?? 0,
         job.cancel ?? 0,
         job.mediaKind ?? null,
         job.inputWidth ?? null,
@@ -239,14 +252,14 @@ export class PostgresService implements DatabaseService {
         job.processingMs ?? null,
         job.errorCode ?? null,
         job.errorMessage ?? null,
-      ]
+      ],
     );
   }
 
   async getJob(jobId: string): Promise<JobState | null> {
     const res = await this.pool.query(
       `SELECT * FROM forma_jobs WHERE job_id = $1`,
-      [jobId]
+      [jobId],
     );
     if (res.rows.length === 0) return null;
     const r = res.rows[0];
@@ -278,7 +291,7 @@ export class PostgresService implements DatabaseService {
   async getDeviceQuota(deviceId: string): Promise<DeviceQuotaRecord | null> {
     const res = await this.pool.query(
       `SELECT * FROM forma_device_quotas WHERE device_id = $1`,
-      [deviceId]
+      [deviceId],
     );
     if (res.rows.length === 0) return null;
     const r = res.rows[0];
@@ -312,11 +325,14 @@ export class PostgresService implements DatabaseService {
         quota.imagesUsed,
         quota.videosUsed,
         quota.updatedAt,
-      ]
+      ],
     );
   }
 
-  async getIpUsage(ipAddress: string, windowStartCutoff: number): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }> {
+  async getIpUsage(
+    ipAddress: string,
+    windowStartCutoff: number,
+  ): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }> {
     const res = await this.pool.query(
       `
       SELECT 
@@ -326,7 +342,7 @@ export class PostgresService implements DatabaseService {
       FROM forma_device_quotas 
       WHERE ip_address = $1 AND window_start >= $2
       `,
-      [ipAddress, windowStartCutoff]
+      [ipAddress, windowStartCutoff],
     );
     const r = res.rows[0];
     return {
@@ -336,18 +352,24 @@ export class PostgresService implements DatabaseService {
     };
   }
 
-  async cleanOldRecords(cutoffMs: number): Promise<{ deletedSlots: number; deletedJobs: number; deletedQuotas?: number }> {
+  async cleanOldRecords(
+    cutoffMs: number,
+  ): Promise<{
+    deletedSlots: number;
+    deletedJobs: number;
+    deletedQuotas?: number;
+  }> {
     const slotsRes = await this.pool.query(
       `DELETE FROM forma_upload_slots WHERE created_at < $1`,
-      [cutoffMs]
+      [cutoffMs],
     );
     const jobsRes = await this.pool.query(
       `DELETE FROM forma_jobs WHERE updated_at < $1 AND status IN ('done', 'failed', 'rejected', 'cancelled', 'expired')`,
-      [cutoffMs]
+      [cutoffMs],
     );
     const quotasRes = await this.pool.query(
       `DELETE FROM forma_device_quotas WHERE updated_at < $1`,
-      [cutoffMs]
+      [cutoffMs],
     );
     return {
       deletedSlots: slotsRes.rowCount || 0,
@@ -393,12 +415,18 @@ export class MemoryDatabaseService implements DatabaseService {
     this.quotas.set(quota.deviceId, { ...quota });
   }
 
-  async getIpUsage(ipAddress: string, windowStartCutoff: number): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }> {
+  async getIpUsage(
+    ipAddress: string,
+    windowStartCutoff: number,
+  ): Promise<{ deviceCount: number; imagesUsed: number; videosUsed: number }> {
     const devices = new Set<string>();
     let imagesUsed = 0;
     let videosUsed = 0;
     for (const record of this.quotas.values()) {
-      if (record.ipAddress === ipAddress && record.windowStart >= windowStartCutoff) {
+      if (
+        record.ipAddress === ipAddress &&
+        record.windowStart >= windowStartCutoff
+      ) {
         devices.add(record.deviceId);
         imagesUsed += record.imagesUsed;
         videosUsed += record.videosUsed;
@@ -411,7 +439,13 @@ export class MemoryDatabaseService implements DatabaseService {
     };
   }
 
-  async cleanOldRecords(cutoffMs: number): Promise<{ deletedSlots: number; deletedJobs: number; deletedQuotas?: number }> {
+  async cleanOldRecords(
+    cutoffMs: number,
+  ): Promise<{
+    deletedSlots: number;
+    deletedJobs: number;
+    deletedQuotas?: number;
+  }> {
     let deletedSlots = 0;
     for (const [id, slot] of this.slots.entries()) {
       if (slot.createdAt < cutoffMs) {
@@ -421,7 +455,12 @@ export class MemoryDatabaseService implements DatabaseService {
     }
     let deletedJobs = 0;
     for (const [id, job] of this.jobs.entries()) {
-      if (job.updatedAt < cutoffMs && ["done", "failed", "rejected", "cancelled", "expired"].includes(job.status)) {
+      if (
+        job.updatedAt < cutoffMs &&
+        ["done", "failed", "rejected", "cancelled", "expired"].includes(
+          job.status,
+        )
+      ) {
         this.jobs.delete(id);
         deletedJobs++;
       }
