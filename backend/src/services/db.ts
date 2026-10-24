@@ -193,7 +193,7 @@ export class PostgresService implements DatabaseService {
       expiresAt: Number(r.expires_at),
     };
   }
-  // TODO fix timestamp null bug
+
   async saveJob(job: JobState): Promise<void> {
     await this.pool.query(
       `
